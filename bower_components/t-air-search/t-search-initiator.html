@@ -1,0 +1,97 @@
+<link rel="import" href="../polymer/polymer.html">
+<link rel="import" href="../iron-ajax/iron-ajax.html">
+
+<dom-module id="t-search-initiator">
+
+<template>
+   <iron-ajax id="searchCall" method="POST" url="[[url]]" verbose 
+    headers='{"accept": "application/json"}'
+    content-type="application/json"
+    handle-as="json"
+    on-response="_callback"></iron-ajax>
+</template>
+
+</dom-module>
+
+<script>
+  Polymer({
+
+    is: 't-search-initiator',
+
+    properties:{
+        
+        url:String,
+
+        tokenResponse:Object
+    },
+
+    attached: function(){
+      var searchInitiator= this;
+      document.addEventListener('on-search', function(event){
+        searchInitiator._searchCallMade(event);
+      });
+    },
+
+    _searchCallMade: function(event){
+       var searchQuery = event.detail; 
+            var query = {
+            "Passengers": [
+                {
+                    "quantity": searchQuery.adult,
+                    "type": "Adult",
+                    "ages": []
+                },
+                {
+                    "quantity": searchQuery.child,
+                    "type": "Child",
+                    "ages": []
+                },
+                {
+                    "quantity": 0,
+                    "type": "Senior",
+                    "ages": []
+                },
+                {
+                    "quantity": searchQuery.infant,
+                    "type": "Infant",
+                    "ages": []
+                }
+            ],
+            "legs": [
+                {
+                    "departureLocation": searchQuery.DepartureAirport,
+                    "includeNearByAirportsForDeparture": true,
+                    "arrivalLocation": searchQuery.ArrivalAirport,
+                    "includeNearByAirportsForArrival": true,
+                    "travelDate": {
+                        "date": searchQuery.departureDate
+                    }
+                }
+            ],
+            "productType": "Flight",
+            "preferences": { "nonStopOnly": false, "cabinType": searchQuery.cabinType }
+        };
+
+        if (searchQuery.itineraryType === 'RoundTrip') {
+            query.legs[1] =
+            {
+                "departureLocation": searchQuery.ArrivalAirport,
+                "includeNearByAirportsForDeparture": true,
+                "arrivalLocation": searchQuery.DepartureAirport,
+                "includeNearByAirportsForArrival": true,
+                "travelDate": {
+                    "date": searchQuery.arrivalDate
+                }
+
+            };
+        }
+        this.$.searchCall.body = JSON.stringify(query);
+        this.$.searchCall.generateRequest();
+    },
+
+    _callback: function(event){
+      this.fire('initiation', event.detail.response)  ;
+    }
+ 
+  })
+</script>
