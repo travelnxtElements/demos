@@ -7,10 +7,15 @@ crisper --script-in-head=false --html elements.html --js build.js
 
 if [[ "$1" == "--deploy" ]]
 then
-  git checkout gh-pages
-  git add -- *.html *.js
-  git commit -m "Deploy"
-  git reset --hard master
-  git checkout master
-  git push origin master gh-pages
+   [[ -d "publish" ]] && rm -rf "publish"
+   git clone git@github.com:travelnxtelements/demos.git publish && cd publish
+   git checkout gh-pages
+
+   cp ../*.{html,js} ./
+   cp -r ../bower_components ./
+
+   git add .
+   git commit -m "Deploy"
+   git push origin gh-pages
+   cd ../
 fi
