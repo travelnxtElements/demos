@@ -1,0 +1,26 @@
+{
+  "name": "demos",
+  "homepage": "https://github.com/travelnxtElements/demos",
+  "authors": [
+    "Ajinkya Tejankar <tejankarajinkya@gmail.com>"
+  ],
+  "description": "Demos for travelNxt elements",
+  "main": "",
+  "moduleType": [],
+  "license": "MIT",
+  "private": true,
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "webcomponentsjs": "^0.7.19",
+    "t-list": "atomelements/t-list#^1.1.0",
+    "t-air-search": "travelnxtelements/t-air-search#^1.0.0",
+    "t-result-item": "travelnxtelements/t-result-item#^1.0.0",
+    "t-shared-components": "atomelements/t-shared-components#^1.0.5"
+  }
+}
