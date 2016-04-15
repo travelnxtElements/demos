@@ -1,0 +1,170 @@
+    <html>
+
+    <head>
+        <title>Air search</title>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="viewport" content="initial-scale=1, maximum-scale=1" />
+        <link href='http://fonts.googleapis.com/css?family=Lobster|Merriweather' rel='stylesheet' type='text/css' />
+        <script src="bower_components/webcomponentsjs/webcomponents-lite.min.js"></script>
+        <link rel="import" href="elements.html">
+    </head>
+
+    <body>
+        <template is="dom-bind">
+            <style>
+            html,
+            body {
+                overflow: hidden;
+                width: 100%;
+                height: 100%;
+                margin: 0;
+            }
+
+            .main {
+                height: 100%;
+                background: url(https://images.unsplash.com/photo-1437651025703-2858c944e3eb?ixlib=rb-0.3.5&q=80&fm=jpg&crop=entropy&s=42cead70c6b9ecf7212d794c2f5541dc) no-repeat center center;
+                background-size: cover;
+            }
+
+            .search {
+                padding: 15px 10px 10px;
+                background: rgba(0, 0, 0, 0.8);
+                min-width: 300px;
+                width: 400px;
+                margin: 0 10px;
+                border-radius: 10px;
+                -webkit-box-sizing: border-box;
+                -moz-box-sizing: border-box;
+                box-sizing: border-box;
+            }
+
+            .h1 {
+                font-size: 4rem;
+                color: #777;
+                font-family: "Lobster", cursive;
+                margin: 0 auto;
+                transform: rotate(-10deg);
+                text-align: center;
+                text-shadow: .04em .04em 0 #fff, .08em .08em 0 #aaa;
+                -webkit-text-shadow: .04em .04em 0 #fff, .08em .08em 0 #aaa;
+                display: none;
+            }
+
+            .list {
+                position: absolute;
+                top: 100%;
+                left: 0;
+                width: 100%;
+                background-color: white;
+                height: 100%;
+                -webkit-transition: 0.3s ease all;
+                -o-transition: 0.3s ease all;
+                transition: 0.3s ease all;
+            }
+
+            .list.active {
+                top: 0;
+            }
+            #again{
+                padding: 10px 25px;
+                background: #ccc;
+                color: #fff;
+                border-radius: 2px;
+                cursor: pointer;
+                -webkit-transition: 0.3s ease all;
+                -o-transition: 0.3s ease all;
+                transition: 0.3s ease all;
+                opacity: 1;
+            }
+            #again.hide{
+                opacity: 0;
+            }
+            @media (min-width: 40em){
+                .h1{
+                    display: block;
+                }
+                t-calendar /deep/ .picker__box{
+                    margin-top: -105px;
+                    margin-left: 10px;
+                }
+                t-calendar /deep/ .picker__box:before{
+                    display: none;
+                }
+            }
+            </style>
+            <div class="layout vertical main">
+                <div class="layout horizontal center header" style="background:#eee;padding:10px 20px;">
+                    <img src="https://s3.amazonaws.com/tavisca.samplebucket/124850/Images/c9154425-43be-4a7a-9d44-463c97a58040" alt="logo" />
+                    <span class="flex"></span>
+                    <a id="again" class="hide" on-click="_againSearch">Search Again</a>
+                </div>
+                <div class="layout horizontal center flex end-justified" style="position:relative">
+                    <div class="search">
+                        <t-air-search id="airSearchComponent" trip-type="Round trip" search-type="event" suggestion-url="http://demo.travelnxt.com/api/Content/autosuggest/" query-params="cid=mystiquedemo&token=w1q3rbau2uswx4awygaf4ell"></t-air-search>
+                        <t-search-initiator url="http://demo.travelnxt.com/api/Flight/search?cid=mystiquedemo&token=w1q3rbau2uswx4awygaf4ell" on-initiation="callback"></t-search-initiator>
+                    </div><!--
+                    <div class="flex">
+                        <div class="text">
+                            <h1 class="h1">
+                            Amazing flights at amazing prices... Built with web components
+                        </h1>
+                        </div>
+                    </div> -->
+                    <div class="list">
+                        <t-list token-param="inventories" with-sorting with-filter exclude-filters='["CabinType","FareType","FlightDuration","DepartureTime","ArrivalTime"]' on-list-population="_listPopulated" on-item-selected="_resultSelected" id="resultsList">
+                            <template>
+                                <t-result-item itinerary="{{item}}">
+                                </t-result-item>
+                            </template>
+                        </t-list>
+                    </div>
+                </div>
+            </div>
+            <div class="layout vertical flex" style="overflow: auto">
+            </div>
+        </template>
+        <script>
+        var templatizer = document.querySelector("[is=dom-bind]");
+        templatizer.callback = function(event) {
+            var response = event.detail;
+            if (response.status.isSuccessful) {
+                var templatizer = document.querySelector("[is=dom-bind]");
+                var sid = response.searchId;
+                templatizer.$.resultsList.filterApi = "http://demo.travelnxt.com/api/Flight/Filter/[-sid-]/rates?cid=mystiquedemo&token=w1q3rbau2uswx4awygaf4ell".replace("[-sid-]", sid);
+                templatizer.$.resultsList.filterResultsApi = "http://demo.travelnxt.com/api/Flight/results/Filter/[-sid-]/both?cid=mystiquedemo&$top=20&token=w1q3rbau2uswx4awygaf4ell".replace("[-sid-]", sid);
+                templatizer.$.resultsList.dataApi = "http://demo.travelnxt.com/api/Flight/results/[-sid-]/rates?cid=mystiquedemo&$top=20&token=w1q3rbau2uswx4awygaf4ell".replace("[-sid-]", sid);
+                templatizer.$.resultsList.generateList();
+            } else {
+        var btnSubmit = document.querySelector("#submit");
+                btnSubmit.disabled = false;
+                btnSubmit.label = "Search Flights";
+            }
+        };
+        templatizer._listPopulated = function() {
+            var list = document.querySelector(".list");
+            var again = document.querySelector("#again");
+            again.classList.remove('hide');
+            list.classList.add('active');
+            setTimeout(function(){
+                var listDiv = document.querySelector('#list'),
+                offsetHeight = window.innerHeight - listDiv.getBoundingClientRect().top + "px!important";
+                listDiv.parentNode.setAttribute("style","height:"+offsetHeight);
+             }, 600);
+
+
+        }
+        templatizer._againSearch = function() {
+            var btnSubmit = document.querySelector("#submit");
+            var list = document.querySelector(".list.active");
+            var again = document.querySelector("#again");
+            list.classList.remove('active');
+            again.classList.add('hide');
+            btnSubmit.disabled = false;
+            btnSubmit.label = "Search Flights";
+        }
+        </script>
+    </body>
+
+    </html>
