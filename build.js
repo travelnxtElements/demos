@@ -1019,7 +1019,7 @@ return data;
 }
 return escapeData(data);
 case Node.COMMENT_NODE:
-return '<!--' + node.data + '-->';
+return '\x3c!--' + node.data + '--\x3e';
 default:
 console.error(node);
 throw new Error('not implemented');
@@ -7622,6 +7622,67 @@ this.fire('dom-change');
 }
 });
 (function() {
+      'use strict';
+
+      Polymer.IronA11yAnnouncer = Polymer({
+        is: 'iron-a11y-announcer',
+
+        properties: {
+
+          /**
+           * The value of mode is used to set the `aria-live` attribute
+           * for the element that will be announced. Valid values are: `off`,
+           * `polite` and `assertive`.
+           */
+          mode: {
+            type: String,
+            value: 'polite'
+          },
+
+          _text: {
+            type: String,
+            value: ''
+          }
+        },
+
+        created: function() {
+          if (!Polymer.IronA11yAnnouncer.instance) {
+            Polymer.IronA11yAnnouncer.instance = this;
+          }
+
+          document.body.addEventListener('iron-announce', this._onIronAnnounce.bind(this));
+        },
+
+        /**
+         * Cause a text string to be announced by screen readers.
+         *
+         * @param {string} text The text that should be announced.
+         */
+        announce: function(text) {
+          this._text = '';
+          this.async(function() {
+            this._text = text;
+          }, 100);
+        },
+
+        _onIronAnnounce: function(event) {
+          if (event.detail && event.detail.text) {
+            this.announce(event.detail.text);
+          }
+        }
+      });
+
+      Polymer.IronA11yAnnouncer.instance = null;
+
+      Polymer.IronA11yAnnouncer.requestAvailability = function() {
+        if (!Polymer.IronA11yAnnouncer.instance) {
+          Polymer.IronA11yAnnouncer.instance = document.createElement('iron-a11y-announcer');
+        }
+
+        document.body.appendChild(Polymer.IronA11yAnnouncer.instance);
+      };
+    })();
+(function() {
 
     // monostate data
     var metaDatas = {};
@@ -8042,7 +8103,7 @@ It may be desirable to only allow users to enter certain characters. You can use
 `prevent-invalid-input` and `allowed-pattern` attributes together to accomplish this. This feature
 is separate from validation, and `allowed-pattern` does not affect how the input is validated.
 
-    <!-- only allow characters that match [0-9] -->
+    \x3c!-- only allow characters that match [0-9] --\x3e
     <input is="iron-input" prevent-invalid-input allowed-pattern="[0-9]">
 
 @hero hero.svg
@@ -8913,7 +8974,13 @@ is separate from validation, and `allowed-pattern` does not affect how the input
     }
 
   };
-/**
+// Generate unique, monotonically increasing IDs for labels (needed by
+  // aria-labelledby) and add-ons.
+  Polymer.PaperInputHelper = {};
+  Polymer.PaperInputHelper.NextLabelID = 1;
+  Polymer.PaperInputHelper.NextAddonID = 1;
+
+  /**
    * Use `Polymer.PaperInputBehavior` to implement inputs with `<paper-input-container>`. This
    * behavior is implemented by `<paper-input>`. It exposes a number of properties from
    * `<paper-input-container>` and `<input is="iron-input">` and they should be bound in your
@@ -8924,6 +8991,7 @@ is separate from validation, and `allowed-pattern` does not affect how the input
    * @polymerBehavior Polymer.PaperInputBehavior
    */
   Polymer.PaperInputBehaviorImpl = {
+
     properties: {
       /**
        * Fired when the input changes due to user interaction.
@@ -9319,7 +9387,7 @@ is separate from validation, and `allowed-pattern` does not affect how the input
       if (target.id) {
         this._ariaDescribedBy = this._appendStringWithSpace(this._ariaDescribedBy, target.id);
       } else {
-        var id = 'paper-input-add-on-' + Math.floor((Math.random() * 100000));
+        var id = 'paper-input-add-on-' + Polymer.PaperInputHelper.NextAddonID++;
         target.id = id;
         this._ariaDescribedBy = this._appendStringWithSpace(this._ariaDescribedBy, id);
       }
@@ -9407,7 +9475,7 @@ is separate from validation, and `allowed-pattern` does not affect how the input
       if (label.id) {
         labelledBy = label.id;
       } else {
-        labelledBy = 'paper-input-label-' + new Date().getUTCMilliseconds();
+        labelledBy = 'paper-input-label-' + Polymer.PaperInputHelper.NextLabelID++;
         label.id = labelledBy;
       }
       this._ariaLabelledBy = labelledBy;
@@ -9425,7 +9493,7 @@ is separate from validation, and `allowed-pattern` does not affect how the input
         });
       }
     }
-  };
+  }
 
   /** @polymerBehavior */
   Polymer.PaperInputBehavior = [
@@ -9433,6 +9501,515 @@ is separate from validation, and `allowed-pattern` does not affect how the input
     Polymer.IronA11yKeysBehavior,
     Polymer.PaperInputBehaviorImpl
   ];
+(function() {
+
+  Polymer({
+
+    is: 't-input-container',
+
+    properties: {
+
+      /**
+       * Set to true to fire the validate method on blur
+       */
+      fireBlur: {
+        type: Boolean,
+        value: true
+      },
+
+      /**
+       * Set to true to disable the floating label. The label disappears when the input value is
+       * not null.
+       */
+      noLabelFloat: {
+        type: Boolean,
+        value: false
+      },
+
+      /**
+       * Set to true to always float the floating label.
+       */
+      alwaysFloatLabel: {
+        type: Boolean,
+        value: false
+      },
+
+      /**
+       * The attribute to listen for value changes on.
+       */
+      attrForValue: {
+        type: String,
+        value: 'bind-value'
+      },
+
+      /**
+       * Set to true to auto-validate the input value when it changes.
+       */
+      autoValidate: {
+        type: Boolean,
+        value: false
+      },
+
+      /**
+       * True if the input is invalid. This property is set automatically when the input value
+       * changes if auto-validating, or when the `iron-input-valid` event is heard from a child.
+       */
+      invalid: {
+        observer: '_invalidChanged',
+        type: Boolean,
+        reflectToAttribute:true,
+        value: false
+      },
+
+      /**
+       * True if the input has focus.
+       */
+      focused: {
+        readOnly: true,
+        type: Boolean,
+        value: false
+      },
+
+      _addons: {
+        type: Array,
+        value: function() {
+          return [];
+        }
+      },
+
+      _inputHasContent: {
+        type: Boolean,
+        value: false
+      },
+
+      _inputSelector: {
+        type: String,
+        value: 'input,textarea,.paper-input-input'
+      },
+
+      _boundOnFocus: {
+        type: Function,
+        value: function() {
+          return this._onFocus.bind(this);
+        }
+      },
+
+      _boundOnBlur: {
+        type: Function,
+        value: function() {
+          return this._onBlur.bind(this);
+        }
+      },
+
+      _boundOnInput: {
+        type: Function,
+        value: function() {
+          this._onInput.bind(this)
+        }
+      },
+
+      _boundValueChanged: {
+        type: Function,
+        value: function() {
+          return this._onValueChanged.bind(this);
+        }
+      }
+
+    },
+
+    listeners: {
+      'addon-attached': '_onAddonAttached',
+      'iron-input-validate': '_onIronInputValidate'
+    },
+
+    get _valueChangedEvent() {
+      return this.attrForValue + '-changed';
+    },
+
+    get _propertyForValue() {
+      return Polymer.CaseMap.dashToCamelCase(this.attrForValue);
+    },
+
+    get _inputElement() {
+      return Polymer.dom(this).querySelector(this._inputSelector);
+    },
+
+    ready: function() {
+      this.addEventListener('focus', this._boundOnFocus, true);
+      this.addEventListener('blur', this._boundOnBlur, true);
+      if (this.attrForValue) {
+        this._inputElement.addEventListener(this._valueChangedEvent, this._boundValueChanged);
+      } else {
+        this.addEventListener('input', this._onInput);
+      }
+    },
+
+    attached: function() {
+      this._handleValue(this._inputElement);
+    },
+
+    _onAddonAttached: function(event) {
+      this._addons.push(event.target);
+      this._handleValue(this._inputElement);
+    },
+
+    _onFocus: function() {
+      this._setFocused(true);
+    },
+
+    _onBlur: function() {
+      this._setFocused(false);
+      if(this.domHost.required && this.fireBlur){
+        this.domHost.validate();
+      }
+    },
+
+    _onInput: function(event) {
+      this._handleValue(event.target);
+    },
+
+    _onValueChanged: function(event) {
+      this._handleValue(event.target);
+    },
+
+    _handleValue: function(inputElement) {
+      var value = inputElement[this._propertyForValue] || inputElement.value;
+      if (this.autoValidate && value.length>0) {
+        var valid;
+        if (inputElement.validate) {
+          valid = inputElement.validate(value);
+        } else {
+          valid = inputElement.checkValidity();
+        }
+        this.invalid = !valid;
+      }
+
+      // type="number" hack needed because this.value is empty until it's valid
+      if (value || (inputElement.type === 'number' && !inputElement.checkValidity())) {
+        this._inputHasContent = true;
+      } else {
+        this._inputHasContent = false;
+      }
+
+      this.updateAddons({
+        inputElement: inputElement,
+        value: value,
+        invalid: this.invalid
+      });
+    },
+
+    _onIronInputValidate: function(event) {
+      this.invalid = this._inputElement.invalid;
+      if(this.invalid){
+        this.classList.add('invalid-input');
+      }else{
+        this.classList.remove('invalid-input');
+      }
+    },
+
+    _invalidChanged: function() {
+      if (this._addons) {
+        this.updateAddons({invalid: this.invalid});
+      }
+    },
+
+    /**
+     * Call this to update the state of add-ons.
+     * @param {Object} state Add-on state.
+     */
+    updateAddons: function(state) {
+      for (var addon, index = 0; addon = this._addons[index]; index++) {
+        addon.update(state);
+      }
+    },
+
+    _computeInputContentClass: function(noLabelFloat, alwaysFloatLabel, focused, invalid, _inputHasContent) {
+      var cls = 'input-content';
+      if (!noLabelFloat) {
+        if (alwaysFloatLabel || _inputHasContent) {
+          cls += ' label-is-floating';
+          if (invalid) {
+            cls += ' is-invalid';
+            this.classList.add('invalid-input');
+          } else if (focused) {
+            this.classList.remove('invalid-input');
+            cls += " label-is-highlighted";
+          }
+        }
+      } else {
+        if (_inputHasContent) {
+          cls += ' label-is-hidden';
+        }
+      }
+      return cls;
+    },
+
+    _computeUnderlineClass: function(focused, invalid) {
+      var cls = 'underline';
+      if (invalid) {
+        cls += ' is-invalid';
+      } else if (focused) {
+        cls += ' is-highlighted'
+      }
+      return cls;
+    },
+
+    _computeAddOnContentClass: function(focused, invalid) {
+      var cls = 'add-on-content';
+      if (invalid) {
+        cls += ' is-invalid';
+      } else if (focused) {
+        cls += ' is-highlighted'
+      }
+      return cls;
+    }
+
+  });
+
+})();
+(function() {
+
+  Polymer({
+
+    is: 't-master-input',
+
+    behaviors: [
+      Polymer.PaperInputBehavior,
+      Polymer.IronFormElementBehavior
+    ]
+
+  })
+
+})();
+Polymer({
+
+    is: 'iron-autogrow-textarea',
+
+    behaviors: [
+      Polymer.IronFormElementBehavior,
+      Polymer.IronValidatableBehavior,
+      Polymer.IronControlState
+    ],
+
+    properties: {
+
+      /**
+       * Use this property instead of `value` for two-way data binding.
+       * This property will be deprecated in the future. Use `value` instead.
+       * @type {string|number}
+       */
+      bindValue: {
+        observer: '_bindValueChanged',
+        type: String
+      },
+
+      /**
+       * The initial number of rows.
+       *
+       * @attribute rows
+       * @type number
+       * @default 1
+       */
+      rows: {
+        type: Number,
+        value: 1,
+        observer: '_updateCached'
+      },
+
+      /**
+       * The maximum number of rows this element can grow to until it
+       * scrolls. 0 means no maximum.
+       *
+       * @attribute maxRows
+       * @type number
+       * @default 0
+       */
+      maxRows: {
+       type: Number,
+       value: 0,
+       observer: '_updateCached'
+      },
+
+      /**
+       * Bound to the textarea's `autocomplete` attribute.
+       */
+      autocomplete: {
+        type: String,
+        value: 'off'
+      },
+
+      /**
+       * Bound to the textarea's `autofocus` attribute.
+       */
+      autofocus: {
+        type: Boolean,
+        value: false
+      },
+
+      /**
+       * Bound to the textarea's `inputmode` attribute.
+       */
+      inputmode: {
+        type: String
+      },
+
+      /**
+       * Bound to the textarea's `placeholder` attribute.
+       */
+      placeholder: {
+        type: String
+      },
+
+      /**
+       * Bound to the textarea's `readonly` attribute.
+       */
+      readonly: {
+        type: String
+      },
+
+      /**
+       * Set to true to mark the textarea as required.
+       */
+      required: {
+        type: Boolean
+      },
+
+      /**
+       * The maximum length of the input value.
+       */
+      maxlength: {
+        type: Number
+      }
+
+    },
+
+    listeners: {
+      'input': '_onInput'
+    },
+
+    observers: [
+      '_onValueChanged(value)'
+    ],
+
+    /**
+     * Returns the underlying textarea.
+     * @type HTMLTextAreaElement
+     */
+    get textarea() {
+      return this.$.textarea;
+    },
+
+    /**
+     * Returns textarea's selection start.
+     * @type Number
+     */
+    get selectionStart() {
+      return this.$.textarea.selectionStart;
+    },
+
+    /**
+     * Returns textarea's selection end.
+     * @type Number
+     */
+    get selectionEnd() {
+      return this.$.textarea.selectionEnd;
+    },
+
+    /**
+     * Sets the textarea's selection start.
+     */
+    set selectionStart(value) {
+      this.$.textarea.selectionStart = value;
+    },
+
+    /**
+     * Sets the textarea's selection end.
+     */
+    set selectionEnd(value) {
+      this.$.textarea.selectionEnd = value;
+    },
+
+    /**
+     * Returns true if `value` is valid. The validator provided in `validator`
+     * will be used first, if it exists; otherwise, the `textarea`'s validity
+     * is used.
+     * @return {boolean} True if the value is valid.
+     */
+    validate: function() {
+      // Empty, non-required input is valid.
+      if (!this.required && this.value == '') {
+        this.invalid = false;
+        return true;
+      }
+
+      var valid;
+      if (this.hasValidator()) {
+        valid = Polymer.IronValidatableBehavior.validate.call(this, this.value);
+      } else {
+        valid = this.$.textarea.validity.valid;
+        this.invalid = !valid;
+      }
+      this.fire('iron-input-validate');
+      return valid;
+    },
+
+    _bindValueChanged: function() {
+      var textarea = this.textarea;
+      if (!textarea) {
+        return;
+      }
+
+      // If the bindValue changed manually, then we need to also update
+      // the underlying textarea's value. Otherwise this change was probably
+      // generated from the _onInput handler, and the two values are already
+      // the same.
+      if (textarea.value !== this.bindValue) {
+        textarea.value = !(this.bindValue || this.bindValue === 0) ? '' : this.bindValue;
+      }
+
+      this.value = this.bindValue;
+      this.$.mirror.innerHTML = this._valueForMirror();
+      // manually notify because we don't want to notify until after setting value
+      this.fire('bind-value-changed', {value: this.bindValue});
+    },
+
+    _onInput: function(event) {
+      this.bindValue = event.path ? event.path[0].value : event.target.value;
+    },
+
+    _constrain: function(tokens) {
+      var _tokens;
+      tokens = tokens || [''];
+      // Enforce the min and max heights for a multiline input to avoid measurement
+      if (this.maxRows > 0 && tokens.length > this.maxRows) {
+        _tokens = tokens.slice(0, this.maxRows);
+      } else {
+        _tokens = tokens.slice(0);
+      }
+      while (this.rows > 0 && _tokens.length < this.rows) {
+        _tokens.push('');
+      }
+      // Use &#160; instead &nbsp; of to allow this element to be used in XHTML.
+      return _tokens.join('<br/>') + '&#160;';
+    },
+
+    _valueForMirror: function() {
+      var input = this.textarea;
+      if (!input) {
+        return;
+      }
+      this.tokens = (input && input.value) ? input.value.replace(/&/gm, '&amp;').replace(/"/gm, '&quot;').replace(/'/gm, '&#39;').replace(/</gm, '&lt;').replace(/>/gm, '&gt;').split('\n') : [''];
+      return this._constrain(this.tokens);
+    },
+
+    _updateCached: function() {
+      this.$.mirror.innerHTML = this._constrain(this.tokens);
+    },
+
+    _onValueChanged: function() {
+      this.bindValue = this.value;
+    }
+  });
 /**
    * Use `Polymer.PaperInputAddonBehavior` to implement an add-on for `<paper-input-container>`. A
    * add-on appears below the input, and may display information based on the input value and
@@ -9464,6 +10041,369 @@ is separate from validation, and `allowed-pattern` does not affect how the input
     }
 
   };
+Polymer({
+    is: 'paper-input-error',
+
+    behaviors: [
+      Polymer.PaperInputAddonBehavior
+    ],
+
+    properties: {
+      /**
+       * True if the error is showing.
+       */
+      invalid: {
+        readOnly: true,
+        reflectToAttribute: true,
+        type: Boolean
+      }
+    },
+
+    /**
+     * This overrides the update function in PaperInputAddonBehavior.
+     * @param {{
+     *   inputElement: (Element|undefined),
+     *   value: (string|undefined),
+     *   invalid: boolean
+     * }} state -
+     *     inputElement: The input element.
+     *     value: The input value.
+     *     invalid: True if the input value is invalid.
+     */
+    update: function(state) {
+      this._setInvalid(state.invalid);
+    }
+  });
+Polymer({
+    is: 'paper-input-char-counter',
+
+    behaviors: [
+      Polymer.PaperInputAddonBehavior
+    ],
+
+    properties: {
+      _charCounterStr: {
+        type: String,
+        value: '0'
+      }
+    },
+
+    /**
+     * This overrides the update function in PaperInputAddonBehavior.
+     * @param {{
+     *   inputElement: (Element|undefined),
+     *   value: (string|undefined),
+     *   invalid: boolean
+     * }} state -
+     *     inputElement: The input element.
+     *     value: The input value.
+     *     invalid: True if the input value is invalid.
+     */
+    update: function(state) {
+      if (!state.inputElement) {
+        return;
+      }
+
+      state.value = state.value || '';
+
+      var counter = state.value.length.toString();
+
+      if (state.inputElement.hasAttribute('maxlength')) {
+        counter += '/' + state.inputElement.getAttribute('maxlength');
+      }
+
+      this._charCounterStr = counter;
+    }
+  });
+(function() {
+
+  Polymer({
+
+    is: 't-textarea',
+
+    behaviors: [
+      Polymer.PaperInputBehavior
+    ],
+
+    properties: {
+
+      _ariaLabelledBy: {
+        observer: '_ariaLabelledByChanged',
+        type: String
+      },
+
+      _ariaDescribedBy: {
+        observer: '_ariaDescribedByChanged',
+        type: String
+      },
+
+      /**
+       * The initial number of rows.
+       *
+       * @attribute rows
+       * @type number
+       * @default 1
+       */
+      rows: {
+        type: Number,
+        value: 1
+      },
+
+      /**
+       * The maximum number of rows this element can grow to until it
+       * scrolls. 0 means no maximum.
+       *
+       * @attribute maxRows
+       * @type number
+       * @default 0
+       */
+      maxRows: {
+       type: Number,
+       value: 0
+      },
+
+    },
+
+    _ariaLabelledByChanged: function(ariaLabelledBy) {
+      this.$.input.textarea.setAttribute('aria-labelledby', ariaLabelledBy);
+    },
+
+    _ariaDescribedByChanged: function(ariaDescribedBy) {
+      this.$.input.textarea.setAttribute('aria-describedby', ariaDescribedBy);
+    }
+
+  });
+
+})();
+Polymer({
+
+	is: "t-input",
+
+	properties:{
+
+	    /**
+	     * Name property
+	    */
+	    name: {
+	      type: String,
+	      value: '',
+	      reflectToAttribute: true
+	    },		
+
+		/**
+       * The label for this input. Bind this to `<paper-input-container>`'s `label` property.
+       */
+		label: {
+			type:String,
+			value:"Untitled Input Field",
+			reflectToAttribute: true
+		},
+
+		/**
+       * The type of the input. The supported types are `text`, `number` and `password`. Bind this
+       * to the `<input is="iron-input">`'s `type` property.
+       */
+		type: {
+			type:String,
+			reflectToAttribute: true
+		},
+
+		/**
+       * A pattern to validate the `input` with. Bind this to the `<input is="iron-input">`'s
+       * `pattern` property.
+       */
+		pattern: {
+			type:String,
+			reflectToAttribute: true
+		},
+
+		/**
+       * Set to true to show a character counter.
+       */
+		charCounter:  {
+			type: Boolean,
+			value: false,
+			reflectToAttribute: true
+		},
+
+		/**
+       * Set to true to validate on blur
+       */
+		validateOnBlur:  {
+			type: Boolean,
+			value: true
+		},
+
+ 		/**
+       * Set to true to prevent the user from entering invalid input. Bind this to the
+       * `<input is="iron-input">`'s `preventInvalidInput` property.
+       */
+		preventInvalidInput:{
+			type: Boolean
+		},
+
+		/**
+       * The error message to display when the input is invalid. Bind this to the
+       * `<paper-input-error>`'s content, if using.
+       */
+		errorMessage: {
+			type:String,
+			value:'required',
+			reflectToAttribute: true
+		},
+
+		/**
+       * Set to true to disable the floating label. Bind this to the `<paper-input-container>`'s
+       * `noLabelFloat` property.
+       */
+		noLabelFloat: {
+			type: Boolean,
+			value: false,
+			reflectToAttribute: true
+		},
+
+		/**
+       * The maximum length of the input value. Bind this to the `<input is="iron-input">`'s
+       * `maxlength` property.
+       */
+		maxLength: {
+			type:Number,
+			reflectToAttribute: true
+		},
+
+		/**
+	       * The minimum (numeric or date-time) input value.
+	       * If you're using PaperInputBehavior to implement your own paper-input-like
+	       * element, bind this to the `<input is="iron-input">`'s `min` property.
+	       */
+	      min: {
+	        type: String
+	      },
+
+	      /**
+	       * The maximum (numeric or date-time) input value.
+	       * Can be a String (e.g. `"2000-1-1"`) or a Number (e.g. `2`).
+	       * If you're using PaperInputBehavior to implement your own paper-input-like
+	       * element, bind this to the `<input is="iron-input">`'s `max` property.
+	       */
+	      max: {
+	        type: String
+	      },
+
+
+		/**
+       * Set to true to auto-validate the input value. Bind this to the `<paper-input-container>`'s
+       * `autoValidate` property.
+       */
+       autoValidate:  {
+			type: Boolean,
+			value: false,
+			reflectToAttribute: true
+		},
+
+		/**
+       * Set to true to mark the input as required. Bind this to the `<input is="iron-input">`'s
+       * `required` property.
+       */
+		required:  {
+			type: Boolean,
+			value: false,
+			reflectToAttribute: true
+		},
+
+		/**
+       * Set to true to switch to a text-area
+       */
+		multiLine: {
+			type: Boolean,
+			value: false,
+			reflectToAttribute: true
+		},
+
+		/**
+       * Set to true to disable this input. 
+       */
+		disabled: {
+			type: Boolean,
+			value: false,
+			reflectToAttribute: true
+		},
+
+
+		/**
+       * The initial number of rows.
+       *
+       * @attribute rows
+       * @type number
+       * @default 3
+       */
+	      rows: {
+	        type: Number,
+	        value: 3
+	      },
+		
+		/**
+       * The initial number of rows.
+       *
+       * @attribute rows
+       * @type number
+       * @default 3
+       */
+	      maxRows: {
+	        type: Number,
+	        value: 10
+	      },
+
+		/**
+       * The value for this input. Bind this to the `<input is="iron-input">`'s `bindValue`
+       * property, or the value property of your input that is `notify:true`.
+       */
+		value: {
+			type:String,
+			notify:true,
+			reflectToAttribute: true
+		},
+
+		 // HTMLInputElement attributes for binding if needed
+	      /**
+	       * If you're using PaperInputBehavior to implement your own paper-input-like
+	       * element, bind this to the `<input is="iron-input">`'s `autocomplete` property.
+	       */
+	      autocomplete: {
+	        type: String,
+	        value: 'off'
+	      },
+
+			// Nonstandard attributes for binding if needed
+	      /**
+	       * If you're using PaperInputBehavior to implement your own paper-input-like
+	       * element, bind this to the `<input is="iron-input">`'s `autocapitalize` property.
+	       */
+	      autocapitalize: {
+	        type: String,
+	        value: 'none'
+	      },
+	      /**
+	       * If you're using PaperInputBehavior to implement your own paper-input-like
+	       * element, bind this to the `<input is="iron-input">`'s `autocorrect` property.
+	       */
+	      autocorrect: {
+	        type: String,
+	        value: 'off'
+	      }
+
+	}, 
+
+	_checkRowValidity: function(row){
+		if(row <= 1)
+			return false;
+		return true;
+	},
+
+	validate: function(){
+		return Polymer.dom(this.root).querySelector('#input').validate();
+	}
+});
 /**
    * @param {!Function} selectCallback
    * @constructor
@@ -10345,6 +11285,603 @@ is separate from validation, and `allowed-pattern` does not affect how the input
     Polymer.IronA11yKeysBehavior,
     Polymer.IronButtonStateImpl
   ];
+(function() {
+    var Utility = {
+      distance: function(x1, y1, x2, y2) {
+        var xDelta = (x1 - x2);
+        var yDelta = (y1 - y2);
+
+        return Math.sqrt(xDelta * xDelta + yDelta * yDelta);
+      },
+
+      now: window.performance && window.performance.now ?
+          window.performance.now.bind(window.performance) : Date.now
+    };
+
+    /**
+     * @param {HTMLElement} element
+     * @constructor
+     */
+    function ElementMetrics(element) {
+      this.element = element;
+      this.width = this.boundingRect.width;
+      this.height = this.boundingRect.height;
+
+      this.size = Math.max(this.width, this.height);
+    }
+
+    ElementMetrics.prototype = {
+      get boundingRect () {
+        return this.element.getBoundingClientRect();
+      },
+
+      furthestCornerDistanceFrom: function(x, y) {
+        var topLeft = Utility.distance(x, y, 0, 0);
+        var topRight = Utility.distance(x, y, this.width, 0);
+        var bottomLeft = Utility.distance(x, y, 0, this.height);
+        var bottomRight = Utility.distance(x, y, this.width, this.height);
+
+        return Math.max(topLeft, topRight, bottomLeft, bottomRight);
+      }
+    };
+
+    /**
+     * @param {HTMLElement} element
+     * @constructor
+     */
+    function Ripple(element) {
+      this.element = element;
+      this.color = window.getComputedStyle(element).color;
+
+      this.wave = document.createElement('div');
+      this.waveContainer = document.createElement('div');
+      this.wave.style.backgroundColor = this.color;
+      this.wave.classList.add('wave');
+      this.waveContainer.classList.add('wave-container');
+      Polymer.dom(this.waveContainer).appendChild(this.wave);
+
+      this.resetInteractionState();
+    }
+
+    Ripple.MAX_RADIUS = 300;
+
+    Ripple.prototype = {
+      get recenters() {
+        return this.element.recenters;
+      },
+
+      get center() {
+        return this.element.center;
+      },
+
+      get mouseDownElapsed() {
+        var elapsed;
+
+        if (!this.mouseDownStart) {
+          return 0;
+        }
+
+        elapsed = Utility.now() - this.mouseDownStart;
+
+        if (this.mouseUpStart) {
+          elapsed -= this.mouseUpElapsed;
+        }
+
+        return elapsed;
+      },
+
+      get mouseUpElapsed() {
+        return this.mouseUpStart ?
+          Utility.now () - this.mouseUpStart : 0;
+      },
+
+      get mouseDownElapsedSeconds() {
+        return this.mouseDownElapsed / 1000;
+      },
+
+      get mouseUpElapsedSeconds() {
+        return this.mouseUpElapsed / 1000;
+      },
+
+      get mouseInteractionSeconds() {
+        return this.mouseDownElapsedSeconds + this.mouseUpElapsedSeconds;
+      },
+
+      get initialOpacity() {
+        return this.element.initialOpacity;
+      },
+
+      get opacityDecayVelocity() {
+        return this.element.opacityDecayVelocity;
+      },
+
+      get radius() {
+        var width2 = this.containerMetrics.width * this.containerMetrics.width;
+        var height2 = this.containerMetrics.height * this.containerMetrics.height;
+        var waveRadius = Math.min(
+          Math.sqrt(width2 + height2),
+          Ripple.MAX_RADIUS
+        ) * 1.1 + 5;
+
+        var duration = 1.1 - 0.2 * (waveRadius / Ripple.MAX_RADIUS);
+        var timeNow = this.mouseInteractionSeconds / duration;
+        var size = waveRadius * (1 - Math.pow(80, -timeNow));
+
+        return Math.abs(size);
+      },
+
+      get opacity() {
+        if (!this.mouseUpStart) {
+          return this.initialOpacity;
+        }
+
+        return Math.max(
+          0,
+          this.initialOpacity - this.mouseUpElapsedSeconds * this.opacityDecayVelocity
+        );
+      },
+
+      get outerOpacity() {
+        // Linear increase in background opacity, capped at the opacity
+        // of the wavefront (waveOpacity).
+        var outerOpacity = this.mouseUpElapsedSeconds * 0.3;
+        var waveOpacity = this.opacity;
+
+        return Math.max(
+          0,
+          Math.min(outerOpacity, waveOpacity)
+        );
+      },
+
+      get isOpacityFullyDecayed() {
+        return this.opacity < 0.01 &&
+          this.radius >= Math.min(this.maxRadius, Ripple.MAX_RADIUS);
+      },
+
+      get isRestingAtMaxRadius() {
+        return this.opacity >= this.initialOpacity &&
+          this.radius >= Math.min(this.maxRadius, Ripple.MAX_RADIUS);
+      },
+
+      get isAnimationComplete() {
+        return this.mouseUpStart ?
+          this.isOpacityFullyDecayed : this.isRestingAtMaxRadius;
+      },
+
+      get translationFraction() {
+        return Math.min(
+          1,
+          this.radius / this.containerMetrics.size * 2 / Math.sqrt(2)
+        );
+      },
+
+      get xNow() {
+        if (this.xEnd) {
+          return this.xStart + this.translationFraction * (this.xEnd - this.xStart);
+        }
+
+        return this.xStart;
+      },
+
+      get yNow() {
+        if (this.yEnd) {
+          return this.yStart + this.translationFraction * (this.yEnd - this.yStart);
+        }
+
+        return this.yStart;
+      },
+
+      get isMouseDown() {
+        return this.mouseDownStart && !this.mouseUpStart;
+      },
+
+      resetInteractionState: function() {
+        this.maxRadius = 0;
+        this.mouseDownStart = 0;
+        this.mouseUpStart = 0;
+
+        this.xStart = 0;
+        this.yStart = 0;
+        this.xEnd = 0;
+        this.yEnd = 0;
+        this.slideDistance = 0;
+
+        this.containerMetrics = new ElementMetrics(this.element);
+      },
+
+      draw: function() {
+        var scale;
+        var translateString;
+        var dx;
+        var dy;
+
+        this.wave.style.opacity = this.opacity;
+
+        scale = this.radius / (this.containerMetrics.size / 2);
+        dx = this.xNow - (this.containerMetrics.width / 2);
+        dy = this.yNow - (this.containerMetrics.height / 2);
+
+
+        // 2d transform for safari because of border-radius and overflow:hidden clipping bug.
+        // https://bugs.webkit.org/show_bug.cgi?id=98538
+        this.waveContainer.style.webkitTransform = 'translate(' + dx + 'px, ' + dy + 'px)';
+        this.waveContainer.style.transform = 'translate3d(' + dx + 'px, ' + dy + 'px, 0)';
+        this.wave.style.webkitTransform = 'scale(' + scale + ',' + scale + ')';
+        this.wave.style.transform = 'scale3d(' + scale + ',' + scale + ',1)';
+      },
+
+      /** @param {Event=} event */
+      downAction: function(event) {
+        var xCenter = this.containerMetrics.width / 2;
+        var yCenter = this.containerMetrics.height / 2;
+
+        this.resetInteractionState();
+        this.mouseDownStart = Utility.now();
+
+        if (this.center) {
+          this.xStart = xCenter;
+          this.yStart = yCenter;
+          this.slideDistance = Utility.distance(
+            this.xStart, this.yStart, this.xEnd, this.yEnd
+          );
+        } else {
+          this.xStart = event ?
+              event.detail.x - this.containerMetrics.boundingRect.left :
+              this.containerMetrics.width / 2;
+          this.yStart = event ?
+              event.detail.y - this.containerMetrics.boundingRect.top :
+              this.containerMetrics.height / 2;
+        }
+
+        if (this.recenters) {
+          this.xEnd = xCenter;
+          this.yEnd = yCenter;
+          this.slideDistance = Utility.distance(
+            this.xStart, this.yStart, this.xEnd, this.yEnd
+          );
+        }
+
+        this.maxRadius = this.containerMetrics.furthestCornerDistanceFrom(
+          this.xStart,
+          this.yStart
+        );
+
+        this.waveContainer.style.top =
+          (this.containerMetrics.height - this.containerMetrics.size) / 2 + 'px';
+        this.waveContainer.style.left =
+          (this.containerMetrics.width - this.containerMetrics.size) / 2 + 'px';
+
+        this.waveContainer.style.width = this.containerMetrics.size + 'px';
+        this.waveContainer.style.height = this.containerMetrics.size + 'px';
+      },
+
+      /** @param {Event=} event */
+      upAction: function(event) {
+        if (!this.isMouseDown) {
+          return;
+        }
+
+        this.mouseUpStart = Utility.now();
+      },
+
+      remove: function() {
+        Polymer.dom(this.waveContainer.parentNode).removeChild(
+          this.waveContainer
+        );
+      }
+    };
+
+    Polymer({
+      is: 'paper-ripple',
+
+      behaviors: [
+        Polymer.IronA11yKeysBehavior
+      ],
+
+      properties: {
+        /**
+         * The initial opacity set on the wave.
+         *
+         * @attribute initialOpacity
+         * @type number
+         * @default 0.25
+         */
+        initialOpacity: {
+          type: Number,
+          value: 0.25
+        },
+
+        /**
+         * How fast (opacity per second) the wave fades out.
+         *
+         * @attribute opacityDecayVelocity
+         * @type number
+         * @default 0.8
+         */
+        opacityDecayVelocity: {
+          type: Number,
+          value: 0.8
+        },
+
+        /**
+         * If true, ripples will exhibit a gravitational pull towards
+         * the center of their container as they fade away.
+         *
+         * @attribute recenters
+         * @type boolean
+         * @default false
+         */
+        recenters: {
+          type: Boolean,
+          value: false
+        },
+
+        /**
+         * If true, ripples will center inside its container
+         *
+         * @attribute recenters
+         * @type boolean
+         * @default false
+         */
+        center: {
+          type: Boolean,
+          value: false
+        },
+
+        /**
+         * A list of the visual ripples.
+         *
+         * @attribute ripples
+         * @type Array
+         * @default []
+         */
+        ripples: {
+          type: Array,
+          value: function() {
+            return [];
+          }
+        },
+
+        /**
+         * True when there are visible ripples animating within the
+         * element.
+         */
+        animating: {
+          type: Boolean,
+          readOnly: true,
+          reflectToAttribute: true,
+          value: false
+        },
+
+        /**
+         * If true, the ripple will remain in the "down" state until `holdDown`
+         * is set to false again.
+         */
+        holdDown: {
+          type: Boolean,
+          value: false,
+          observer: '_holdDownChanged'
+        },
+
+        /**
+         * If true, the ripple will not generate a ripple effect
+         * via pointer interaction.
+         * Calling ripple's imperative api like `simulatedRipple` will
+         * still generate the ripple effect.
+         */
+        noink: {
+          type: Boolean,
+          value: false
+        },
+
+        _animating: {
+          type: Boolean
+        },
+
+        _boundAnimate: {
+          type: Function,
+          value: function() {
+            return this.animate.bind(this);
+          }
+        }
+      },
+
+      get target () {
+        var ownerRoot = Polymer.dom(this).getOwnerRoot();
+        var target;
+
+        if (this.parentNode.nodeType == 11) { // DOCUMENT_FRAGMENT_NODE
+          target = ownerRoot.host;
+        } else {
+          target = this.parentNode;
+        }
+
+        return target;
+      },
+
+      keyBindings: {
+        'enter:keydown': '_onEnterKeydown',
+        'space:keydown': '_onSpaceKeydown',
+        'space:keyup': '_onSpaceKeyup'
+      },
+
+      attached: function() {
+        // Set up a11yKeysBehavior to listen to key events on the target,
+        // so that space and enter activate the ripple even if the target doesn't
+        // handle key events. The key handlers deal with `noink` themselves.
+        this.keyEventTarget = this.target;
+        this.listen(this.target, 'up', 'uiUpAction');
+        this.listen(this.target, 'down', 'uiDownAction');
+      },
+
+      detached: function() {
+        this.unlisten(this.target, 'up', 'uiUpAction');
+        this.unlisten(this.target, 'down', 'uiDownAction');
+      },
+
+      get shouldKeepAnimating () {
+        for (var index = 0; index < this.ripples.length; ++index) {
+          if (!this.ripples[index].isAnimationComplete) {
+            return true;
+          }
+        }
+
+        return false;
+      },
+
+      simulatedRipple: function() {
+        this.downAction(null);
+
+        // Please see polymer/polymer#1305
+        this.async(function() {
+          this.upAction();
+        }, 1);
+      },
+
+      /**
+       * Provokes a ripple down effect via a UI event,
+       * respecting the `noink` property.
+       * @param {Event=} event
+       */
+      uiDownAction: function(event) {
+        if (!this.noink) {
+          this.downAction(event);
+        }
+      },
+
+      /**
+       * Provokes a ripple down effect via a UI event,
+       * *not* respecting the `noink` property.
+       * @param {Event=} event
+       */
+      downAction: function(event) {
+        if (this.holdDown && this.ripples.length > 0) {
+          return;
+        }
+
+        var ripple = this.addRipple();
+
+        ripple.downAction(event);
+
+        if (!this._animating) {
+          this.animate();
+        }
+      },
+
+      /**
+       * Provokes a ripple up effect via a UI event,
+       * respecting the `noink` property.
+       * @param {Event=} event
+       */
+      uiUpAction: function(event) {
+        if (!this.noink) {
+          this.upAction(event);
+        }
+      },
+
+      /**
+       * Provokes a ripple up effect via a UI event,
+       * *not* respecting the `noink` property.
+       * @param {Event=} event
+       */
+      upAction: function(event) {
+        if (this.holdDown) {
+          return;
+        }
+
+        this.ripples.forEach(function(ripple) {
+          ripple.upAction(event);
+        });
+
+        this.animate();
+      },
+
+      onAnimationComplete: function() {
+        this._animating = false;
+        this.$.background.style.backgroundColor = null;
+        this.fire('transitionend');
+      },
+
+      addRipple: function() {
+        var ripple = new Ripple(this);
+
+        Polymer.dom(this.$.waves).appendChild(ripple.waveContainer);
+        this.$.background.style.backgroundColor = ripple.color;
+        this.ripples.push(ripple);
+
+        this._setAnimating(true);
+
+        return ripple;
+      },
+
+      removeRipple: function(ripple) {
+        var rippleIndex = this.ripples.indexOf(ripple);
+
+        if (rippleIndex < 0) {
+          return;
+        }
+
+        this.ripples.splice(rippleIndex, 1);
+
+        ripple.remove();
+
+        if (!this.ripples.length) {
+          this._setAnimating(false);
+        }
+      },
+
+      animate: function() {
+        var index;
+        var ripple;
+
+        this._animating = true;
+
+        for (index = 0; index < this.ripples.length; ++index) {
+          ripple = this.ripples[index];
+
+          ripple.draw();
+
+          this.$.background.style.opacity = ripple.outerOpacity;
+
+          if (ripple.isOpacityFullyDecayed && !ripple.isRestingAtMaxRadius) {
+            this.removeRipple(ripple);
+          }
+        }
+
+        if (!this.shouldKeepAnimating && this.ripples.length === 0) {
+          this.onAnimationComplete();
+        } else {
+          window.requestAnimationFrame(this._boundAnimate);
+        }
+      },
+
+      _onEnterKeydown: function() {
+        this.uiDownAction();
+        this.async(this.uiUpAction, 1);
+      },
+
+      _onSpaceKeydown: function() {
+        this.uiDownAction();
+      },
+
+      _onSpaceKeyup: function() {
+        this.uiUpAction();
+      },
+
+      // note: holdDown does not respect noink since it can be a focus based
+      // effect.
+      _holdDownChanged: function(newVal, oldVal) {
+        if (oldVal === undefined) {
+          return;
+        }
+        if (newVal) {
+          this.downAction();
+        } else {
+          this.upAction();
+        }
+      }
+    });
+  })();
 /**
    * `Polymer.PaperRippleBehavior` dynamically implements a ripple
    * when the element has focus via pointer or keyboard.
@@ -10495,6 +12032,761 @@ is separate from validation, and `allowed-pattern` does not affect how the input
     Polymer.PaperRippleBehavior,
     Polymer.PaperInkyFocusBehaviorImpl
   ];
+Polymer({
+    is: 't-checkbox',
+
+    behaviors: [
+      // TODO: Paper behaviors add ripple. Remove them if we don't want ripples
+      Polymer.PaperInkyFocusBehavior
+    ],
+
+    hostAttributes: {
+      role: 'checkbox',
+      'aria-checked': false,
+      tabindex: 0
+    },
+
+    properties: {
+      
+      /**
+       * Put the checkmark on the right.
+       *
+       * @attribute checked
+       * @type boolean
+       * @default false
+       */
+       checkboxRight:{
+        type:Boolean,
+        value:false,
+        reflectToAttribute:true
+       },
+
+       /**
+       * Gets or sets the state, `true` is checked and `false` is unchecked.
+       *
+       * @attribute checked
+       * @type boolean
+       * @default false
+       */
+      checked: {
+        type: Boolean,
+        value: false,
+        reflectToAttribute: true,
+        notify: true,
+        observer: '_checkedChanged'
+      },
+
+      /**
+       * If true, the button toggles the active state with each tap or press
+       * of the spacebar.
+       *
+       * @attribute toggles
+       * @type boolean
+       * @default true
+       */
+      toggles: {
+        type: Boolean,
+        value: true,
+        reflectToAttribute: true
+      }
+    },
+
+    ready: function() {
+      if (Polymer.dom(this).textContent == '') {
+          this.$.checkboxLabel.hidden = true;
+        } else {
+          this.setAttribute('aria-label', Polymer.dom(this).textContent);
+        }
+        this._isReady = true;
+    },
+
+    // button-behavior hook
+    _buttonStateChanged: function() {
+      if (this.disabled) {
+          return;
+        }
+        if (this._isReady) {
+          this.checked = this.active;
+        }
+    },
+
+    _checkedChanged: function(checked) {
+      this.setAttribute('aria-checked', this.checked ? 'true' : 'false');
+      this.active = this.checked;
+      this.fire('checked-change');
+    },
+
+    _computeCheckboxClass: function(checked) {
+      if (checked) {
+        return 'checked';
+      }
+    },
+
+    _computeCheckmarkClass: function(checked) {
+      if (!checked) {
+        return 'hidden';
+      }
+    }
+  });
+Polymer({
+
+    is: 't-checkbox-group',
+
+    hostAttributes: {
+        role: 'checkboxgroup'
+    },
+
+    properties: {
+
+        /**
+         * Json list based checkbox group.
+         *
+         * @attribute checked
+         * @type boolean
+         * @default false
+         */
+        data: {
+            type: Array,
+            value: function() {
+                return [];
+            },
+            notify: true,
+            observer: '_dataChanged',
+            reflectToAttribute: true
+        },
+
+        /**
+         * Name property
+         */
+        name: {
+            type: String,
+            value: '',
+            reflectToAttribute: true
+        },
+
+        /**
+         * Sets the label of the group leave empty for no label
+         * @default ""
+         */
+        label: {
+            type: String,
+            value:"",
+            reflectToAttribute: true
+        },
+
+        /**
+         * Sets the boxes inline
+         * @default false
+         */
+        inline: {
+            type: Boolean,
+            value: false,
+            reflectToAttribute: true
+        },
+
+        /**
+         * Gets the array of selected values
+         * @attribute selected
+         * @type Array
+         * @default null
+         */
+        selectedValues: {
+            type: Array,
+            value: []
+        },
+
+        /**
+         * Sets the attribute selection
+         * @attribute selected
+         * @type String
+         * @default name
+         */
+        selectionAttribute: {
+            type: String,
+            value: 'name'
+        },
+
+        /* @attribute selected
+         * @type Array
+         * @default null
+         */
+        selectedItem: {
+            type: Array,
+            value: null,
+            notify: true,
+            reflectToAttribute: true,
+            observer: "_selectedChanged"
+        },
+
+        required: {
+            type: Boolean,
+            value: false
+        },
+
+        /**
+         * errorMsg is to put the error msg
+         */
+        errorMessage: {
+            type: String,
+            reflectToAttribute: true,
+            value: 'Please select atleast one value!'
+        },
+
+        /**
+         * Put the checkmark on the right.
+         *
+         * @attribute checked
+         * @type boolean
+         * @default false
+         */
+        checkboxRight: {
+            type: Boolean,
+            value: false,
+            reflectToAttribute: true
+        }
+
+
+
+    },
+
+    listeners: {
+        // TODO: this can be replaced by <iron-a11y-keys> when it's ready.
+        keydown: '_onKeyDown'
+    },
+
+    _dataChanged: function() {
+        if (this.data && this.data.length > 0) {
+            Polymer.dom(this.$.items).getDistributedNodes().forEach(function(element) {
+                element.remove();
+            });
+        }
+    },
+
+    _selectedChanged: function() {
+        // TODO: This only needs to be async while a domReady event is unavailable.
+        this.async(function() {
+            this._selectIndex(this._valueToIndex(this.items, this.selected));
+            this.fire('paper-checkbox-group-changed');
+        });
+    },
+
+    _onKeyDown: function(event) {
+        if (event.keyCode === 37 || event.keyCode == 38) {
+            // Up/Left key goes back.
+            this.selected = this._previousNode();
+        } else if (event.keyCode === 39 || event.keyCode == 40) {
+            // Down/Right key advances.
+            this.selected = this._nextNode();
+        } else {
+            event.preventDefault();
+        }
+    },
+
+    _selectIndex: function(index) {
+        if (index == this._selectedIndex)
+            return;
+        var nodes = this.items;
+        // If there was a previously selected node, deselect it.
+        if (nodes[this._selectedIndex]) {
+            nodes[this._selectedIndex].checked = false;
+        }
+        // Select a new node.
+        nodes[index].checked = true;
+        nodes[index].focus();
+        this._selectedIndex = index;
+    },
+
+    /**
+     * Returns an array of all items.
+     *
+     * @property items
+     * @type array
+     */
+    get items() {
+        return Polymer.dom(this.$.items).getDistributedNodes();
+    },
+
+    _nextNode: function() {
+        var items = this.items;
+        var index = this._selectedIndex;
+        var newIndex = index;
+        do {
+            newIndex = (newIndex + 1) % items.length;
+            if (newIndex === index) {
+                break;
+            }
+        } while (items[newIndex].disabled);
+        return this._valueForNode(items[newIndex]);
+    },
+
+    _previousNode: function() {
+        var items = this.items;
+        var index = this._selectedIndex;
+        var newIndex = index;
+        do {
+            newIndex = (newIndex || items.length) - 1;
+            if (newIndex === index) {
+                break;
+            }
+        } while (items[newIndex].disabled);
+        return this._valueForNode(items[newIndex]);
+    },
+
+    _valueForNode: function(node) {
+        return node["name"] || node.getAttribute("name");
+    },
+
+    // Finds an item with value == |value| and return its index.
+    _valueToIndex: function(items, value) {
+        for (var index = 0, node;
+            (node = items[index]); index++) {
+            if (this._valueForNode(node) == value) {
+                return index;
+            }
+        }
+        // If no item found, the value itself is probably the index.
+        return value;
+    },
+
+    validate: function() {
+        if (this.required && this.selectedValues.length == 0) {
+            this.classList.add('no-value');
+            return false;
+        }
+        this.classList.remove('no-value');
+        return true;
+    }
+
+});
+Polymer({
+    is: 't-radio-button',
+
+    behaviors: [
+      // TODO: Paper behaviors add ripple. Remove them if we don't want ripples
+      Polymer.PaperInkyFocusBehavior
+    ],
+
+    hostAttributes: {
+      role: 'radio',
+      'aria-checked': false,
+      tabindex: 0
+    },
+
+    properties: {
+       
+
+       /**
+       * Put the checkmark on the right.
+       *
+       * @attribute checked
+       * @type boolean
+       * @default false
+       */
+       radioRight:{
+        type:Boolean,
+        value:false,
+        reflectToAttribute:true
+       },
+
+      /**
+       * Gets or sets the state, `true` is checked and `false` is unchecked.
+       *
+       * @attribute checked
+       * @type boolean
+       * @default false
+       */
+      checked: {
+        type: Boolean,
+        value: false,
+        reflectToAttribute: true,
+        notify: true,
+        observer: '_checkedChanged'
+      },
+
+      /**
+       * If true, the button toggles the active state with each tap or press
+       * of the spacebar.
+       *
+       * @attribute toggles
+       * @type boolean
+       * @default true
+       */
+      toggles: {
+        type: Boolean,
+        value: true,
+        reflectToAttribute: true
+      }
+    },
+
+    ready: function() {
+      if (this.$.radioLabel.innerText == '') {
+        this.$.radioLabel.hidden = true;
+      } else {
+        this.setAttribute('aria-label', this.$.radioLabel.textContent);
+      }
+    },
+
+    _buttonStateChanged: function() {
+      if(this.active)
+        this.checked = this.active;
+    },
+
+    _checkedChanged: function() {
+      this.setAttribute('aria-checked', this.checked ? 'true' : 'false');
+      this.active = this.checked;
+      this.fire('iron-change');
+    }
+  });
+Polymer({
+    is: 't-radio-group',
+
+    behaviors: [
+        Polymer.IronA11yKeysBehavior
+    ],
+
+    hostAttributes: {
+        role: 'radiogroup',
+        tabindex: 0
+    },
+
+    properties: {
+
+        /**
+         * Put the checkmark on the right.
+         *
+         * @attribute checked
+         * @type boolean
+         * @default false
+         */
+        radioRight: {
+            type: Boolean,
+            value: false,
+            reflectToAttribute: true
+        },
+
+        /**
+         * Name property
+         */
+        name: {
+            type: String,
+            value: '',
+            reflectToAttribute: true
+        },
+
+        /**
+         * Sets the label of the group leave empty for no label
+         * @default ""
+         */
+        label: {
+            type: String,
+            value: "",
+            reflectToAttribute: true
+        },
+
+        /**
+         * Sets the boxes inline
+         * @default false
+         */
+        pillButton: {
+            type: Boolean,
+            value: false,
+            reflectToAttribute: true
+        },
+
+        /**
+         * Sets the boxes inline
+         * @default false
+         */
+        inline: {
+            type: Boolean,
+            value: false,
+            reflectToAttribute: true
+        },
+
+        hideLabel: {
+            type: Boolean,
+            computed:'_checkLabel(label)'
+        },
+
+        /**
+         * Gets or sets the selected element. Use the `name` attribute of the
+         * <t-radio-button> that should be selected.
+         *
+         * @attribute selected
+         * @type String
+         * @default null
+         */
+        selectedItem: {
+            type: String,
+            value: "0",
+            notify: true,
+            reflectToAttribute: true,
+            observer: "_selectedChanged"
+        },
+
+
+        /**
+         * Json list based Radio group.
+         *
+         * @attribute checked
+         * @type boolean
+         * @default false
+         */
+        data: {
+            type: Array,
+            value: function() {
+                return [];
+            },
+            notify: true,
+            observer: '_dataChanged',
+            reflectToAttribute: true
+        }
+    },
+
+    listeners: {
+        // TODO: this can be replaced by <iron-a11y-keys> when it's ready.
+        keydown: '_onKeyDown'
+    },
+
+
+    _checkLabel:function(label){
+        return this.label.length == 0;
+    },
+    _selectedChanged: function() {
+        // TODO: This only needs to be async while a domReady event is unavailable.
+        var component = this;
+        this.async(function() {
+            setTimeout(function() {
+
+                component._selectIndex(component._valueToIndex(component.items, component.selectedItem));
+                component.fire('t-radio-group-changed');
+            }, 0);
+        });
+    },
+
+    _dataChanged: function() {
+        if (this.data.length > 0) {
+            Polymer.dom(this.$.items).getDistributedNodes().forEach(function(element) {
+                element.remove();
+            });
+        }
+    },
+
+    _onKeyDown: function(event) {
+        if (event.keyCode === 37 || event.keyCode == 38) {
+            // Up/Left key goes back.
+            this.selectedItem = this._previousNode();
+        } else if (event.keyCode === 39 || event.keyCode == 40) {
+            // Down/Right key advances.
+            this.selectedItem = this._nextNode();
+        } else {
+            event.preventDefault();
+        }
+    },
+
+    /**
+     * Returns an array of all items.
+     *
+     * @property items
+     * @type array
+     */
+    get items() {
+        if (this.data.length > 0)
+            return this.querySelectorAll('t-radio-button');
+        return Polymer.dom(this.$.items).getDistributedNodes();
+    },
+
+    _nextNode: function() {
+        var items = this.items;
+        var index = this._selectedIndex;
+        var newIndex = index;
+        do {
+            newIndex = (newIndex + 1) % items.length;
+            if (newIndex === index) {
+                break;
+            }
+        } while (items[newIndex].disabled);
+        return this._valueForNode(items[newIndex]);
+    },
+
+    _previousNode: function() {
+        var items = this.items;
+        var index = this._selectedIndex;
+        var newIndex = index;
+        do {
+            newIndex = (newIndex || items.length) - 1;
+            if (newIndex === index) {
+                break;
+            }
+        } while (items[newIndex].disabled);
+        return this._valueForNode(items[newIndex]);
+    },
+
+    _selectIndex: function(index) {
+        if (index == this._selectedIndex)
+            return;
+        var nodes = this.items;
+        // If there was a previously selected node, deselect it.
+        if (nodes[this._selectedIndex]) {
+            nodes[this._selectedIndex].checked = false;
+        }
+        // Select a new node.
+        nodes[index].checked = true;
+        //nodes[index].focus();
+        this._selectedIndex = index;
+    },
+
+    _valueForNode: function(node) {
+        return node["name"] || node.getAttribute("name");
+    },
+
+    // Finds an item with value == |value| and return its index.
+    _valueToIndex: function(items, value) {
+        for (var index = 0, node;
+            (node = items[index]); index++) {
+            if (this._valueForNode(node) == value) {
+                return index;
+            }
+        }
+        // If no item found, the value itself is probably the index.
+        return value;
+    },
+
+    validate:function(){
+        return true;
+    }
+});
+Polymer({
+    is: 'paper-material',
+
+    properties: {
+      /**
+       * The z-depth of this element, from 0-5. Setting to 0 will remove the
+       * shadow, and each increasing number greater than 0 will be "deeper"
+       * than the last.
+       *
+       * @attribute elevation
+       * @type number
+       * @default 1
+       */
+      elevation: {
+        type: Number,
+        reflectToAttribute: true,
+        value: 1
+      },
+
+      /**
+       * Set this to true to animate the shadow when setting a new
+       * `elevation` value.
+       *
+       * @attribute animated
+       * @type boolean
+       * @default false
+       */
+      animated: {
+        type: Boolean,
+        reflectToAttribute: true,
+        value: false
+      }
+    }
+  });
+Polymer({
+
+      is: 'iron-icon',
+
+      properties: {
+
+        /**
+         * The name of the icon to use. The name should be of the form:
+         * `iconset_name:icon_name`.
+         */
+        icon: {
+          type: String,
+          observer: '_iconChanged'
+        },
+
+        /**
+         * The name of the theme to used, if one is specified by the
+         * iconset.
+         */
+        theme: {
+          type: String,
+          observer: '_updateIcon'
+        },
+
+        /**
+         * If using iron-icon without an iconset, you can set the src to be
+         * the URL of an individual icon image file. Note that this will take
+         * precedence over a given icon attribute.
+         */
+        src: {
+          type: String,
+          observer: '_srcChanged'
+        },
+
+        /**
+         * @type {!Polymer.IronMeta}
+         */
+        _meta: {
+          value: Polymer.Base.create('iron-meta', {type: 'iconset'}),
+          observer: '_updateIcon'
+        }
+
+      },
+
+      _DEFAULT_ICONSET: 'icons',
+
+      _iconChanged: function(icon) {
+        var parts = (icon || '').split(':');
+        this._iconName = parts.pop();
+        this._iconsetName = parts.pop() || this._DEFAULT_ICONSET;
+        this._updateIcon();
+      },
+
+      _srcChanged: function(src) {
+        this._updateIcon();
+      },
+
+      _usesIconset: function() {
+        return this.icon || !this.src;
+      },
+
+      /** @suppress {visibility} */
+      _updateIcon: function() {
+        if (this._usesIconset()) {
+          if (this._img && this._img.parentNode) {
+            Polymer.dom(this.root).removeChild(this._img);
+          }
+          if (this._iconName === "") {
+            if (this._iconset) {
+              this._iconset.removeIcon(this);
+            }
+          } else if (this._iconsetName && this._meta) {
+            this._iconset = /** @type {?Polymer.Iconset} */ (
+              this._meta.byKey(this._iconsetName));
+            if (this._iconset) {
+              this._iconset.applyIcon(this, this._iconName, this.theme);
+              this.unlisten(window, 'iron-iconset-added', '_updateIcon');
+            } else {
+              this.listen(window, 'iron-iconset-added', '_updateIcon');
+            }
+          }
+        } else {
+          if (this._iconset) {
+            this._iconset.removeIcon(this);
+          }
+          if (!this._img) {
+            this._img = document.createElement('img');
+            this._img.style.width = '100%';
+            this._img.style.height = '100%';
+            this._img.draggable = false;
+          }
+          this._img.src = this.src;
+          Polymer.dom(this.root).appendChild(this._img);
+        }
+      }
+
+    });
 /**
    * The `iron-iconset-svg` element allows users to define their own icon sets
    * that contain svg icons. The svg icon elements should be children of the
@@ -10892,6 +13184,121 @@ is separate from validation, and `allowed-pattern` does not affect how the input
       }
     };
   })();
+(function() {
+
+      'use strict';
+
+      function classNames(obj) {
+        var classNames = [];
+        for (var key in obj) {
+          if (obj.hasOwnProperty(key) && obj[key]) {
+            classNames.push(key);
+          }
+        }
+
+        return classNames.join(' ');
+      }
+
+      Polymer({
+
+        is: 't-loader',
+
+        listeners: {
+          'animationend': 'reset',
+          'webkitAnimationEnd': 'reset'
+        },
+
+        properties: {
+
+          /**
+           * Displays the spinner.
+           *
+           * @attribute active
+           * @type boolean
+           * @default false
+           */
+          active: {
+            observer: 'activeChanged',
+            type: Boolean,
+            value: false
+          },
+
+          /**
+           * Alternative text content for accessibility support.
+           * If alt is present, it will add an aria-label whose content matches alt when active.
+           * If alt is not present, it will default to 'loading' as the alt value.
+           *
+           * @attribute alt
+           * @type string
+           * @default 'loading'
+           */
+          alt: {
+            observer: 'altChanged',
+            type: String,
+            value: 'loading'
+          },
+
+          /**
+           * True when the spinner is going from active to inactive. This is represented by a fade
+           * to 0% opacity to the user.
+           */
+          _coolingDown: {
+            value: false
+          },
+
+          _spinnerContainerClassName: {
+            computed: 'computeSpinnerContainerClassName(active, _coolingDown)'
+          }
+
+        },
+
+        computeSpinnerContainerClassName: function(active, _coolingDown) {
+          return classNames({
+            active: active || _coolingDown,
+            cooldown: _coolingDown
+          });
+        },
+
+        ready: function() {
+          // Allow user-provided `aria-label` take preference to any other text alternative.
+          if (this.hasAttribute('aria-label')) {
+            this.alt = this.getAttribute('aria-label');
+          } else {
+            this.setAttribute('aria-label', this.alt);
+          }
+
+          if (!this.active) {
+            this.setAttribute('aria-hidden', 'true');
+          }
+        },
+
+        activeChanged: function() {
+          if (this.active) {
+            this.removeAttribute('aria-hidden');
+          } else {
+            this._coolingDown = true;
+            this.setAttribute('aria-hidden', 'true');
+          }
+        },
+
+        altChanged: function() {
+          if (this.alt === '') {
+            this.setAttribute('aria-hidden', 'true');
+          } else {
+            this.removeAttribute('aria-hidden');
+          }
+
+          this.setAttribute('aria-label', this.alt);
+        },
+
+        reset: function() {
+          this.active = false;
+          this._coolingDown = false;
+        }
+
+      });
+
+    }());
 var AutoComplete = (function () {
     "use strict";
     var AutoComplete = function(params,component) {
@@ -11244,6 +13651,298 @@ function attrClass(item, value) {
 function domCreate(item) {
     return document.createElement(item);
 };
+Polymer({
+
+    is: 't-autosuggest',
+
+    properties: {
+
+        /**
+         * Name property
+         */
+        name: {
+            type: String,
+            value: '',
+            reflectToAttribute: true
+        },
+
+        /**
+         * No label float is to make the label either on the body or on the top.
+         */
+        noLabelFloat: {
+            type: Boolean,
+            reflectToAttribute: true,
+            value: false,
+            observer: '_checkLabel'
+        },
+
+        /**
+         * Api url of the autosuggestion engine.
+         */
+        dataUrl: {
+            type: String,
+            value: '',
+            reflectToAttribute: true
+        },
+
+        /**
+         * Search parameter.
+         */
+        param: {
+            type: String,
+            value: "query",
+            reflectToAttribute: true
+        },
+
+        /**
+         * No matching result message.
+         */
+        emptyMessage: {
+            type: String,
+            value: "No matches found.",
+            reflectToAttribute: true
+        },
+
+        /**
+         * Selected value from the autosuggest.
+         */
+        selectedValue: {
+            type: String,
+            value: '',
+            notify: true,
+            observer:'_checkFloatedLabel',
+            reflectToAttribute: true
+        },
+
+        /**
+         * Selected item from the autosuggest.
+         */
+        selectedItem: {
+            type: Object,
+            // value:'test',
+            notify: true,
+            observer:'_selectedItemChanged',
+            value: function() {
+                return null;
+            }
+        },
+
+        /**
+         * Disable autosuggest.
+         */
+        disabled: {
+            type: Boolean,
+            value: false,
+            reflectToAttribute: true
+        },
+
+        /**
+         * Disable autosuggest.
+         */
+        isInvalid: {
+            type: Boolean,
+            value: false,
+            reflectToAttribute: true
+        },
+
+        /**
+         * Label of the autosuggest.
+         */
+        label: {
+            type: String,
+            value: "",
+            reflectToAttribute: true,
+            observer: '_checkLabel'
+        },
+
+        /**
+         * Put as required
+         */
+        required: {
+            type: Boolean,
+            value: false,
+            reflectToAttribute: true
+        },
+
+        /**
+         * Set to true to fire validations on blur
+         */
+        validateOnBlur: {
+            type: Boolean,
+            value: true
+        },
+
+        /**
+         * Token param
+         */
+        tokenParam: {
+            type: String,
+            value: "",
+            reflectToAttribute: true
+        },
+
+        /**
+         * errorMessage is to put the error msg
+         */
+        errorMessage: {
+            type: String,
+            reflectToAttribute: true,
+            value: 'Please select a value!'
+        },
+
+        invalidErrorMessage:{
+            type:String,
+            value:'Invalid value'
+        },
+
+        caching: {
+            type: Boolean,
+            reflectToAttribute: true,
+            value: false
+        },
+
+        subType: {
+            type: String,
+            value: ""
+        },
+
+        queryParams: {
+            type: String,
+            value: ""
+        },
+
+        minimumCharacters: {
+            type: Number,
+            value: 3
+        }
+
+    },
+    listeners:{
+        'tap':'simpleTap',
+        'clearButton.tap':'_clear'
+    },
+
+    attached: function() {
+        AutoComplete({
+            method: "POST"
+        }, this);
+        var component = this,
+        //to handle the scrolling position when focused
+        scrollTop;
+        this.$.autoSuggest.addEventListener('focus',function(){
+            function allFunction(){
+            //to scroll to top when focused for ios
+                scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+                component.classList.add('focused');
+                document.body.scrollTop = document.documentElement.scrollTop = 0;
+            }
+            setTimeout(allFunction, 10);
+        });
+        this.$.autoSuggest.addEventListener('blur',function(){
+            function allFunction(){
+                Polymer.IronDropdownScrollManager.removeScrollLock(component);
+                if(component.required && component.validateOnBlur){
+                	component.validate();
+                }
+                if (component.selectedItem) { 
+                    component.selectedValue = component.selectedItem[component.tokenParam];
+            	}
+                component.classList.remove('focused');
+                component.$.dropBox.className = "autocomplete ";
+                component.$.spinner.hidden = true;
+                //to scroll to previous position when focusout
+                document.body.scrollTop = document.documentElement.scrollTop = scrollTop;
+                component.fire('blur');
+            }
+            setTimeout(allFunction, 10);
+        });
+    },
+
+    _cancel:function(){
+        if(this.lastSelectedItem){
+            this.selectedItem = this.lastSelectedItem;
+        }
+        this.$.autoSuggest.fire('blur');
+    },
+    _clear:function(event){
+        event.stopPropagation();
+        this.clear();
+    },
+
+    _onFocus: function(event) {
+        Polymer.IronDropdownScrollManager.pushScrollLock(this);
+        this.$.autoSuggest.select();
+        event.stopImmediatePropagation();
+        return false;
+    },
+
+    _checkLabel: function() {
+        this.placeholder = this.noLabelFloat ? this.label : "";
+    },
+
+    validate: function() {
+        if (this.required) {
+                if(!this.selectedValue == true ){
+                    this.classList.add('no-value');
+                    this.classList.remove('invalid-value');
+                }else{   
+                    if(this.isInvalid){
+                       this.classList.add('invalid-value');
+                        this.classList.remove('no-value');
+                        return false;
+                    }
+                }
+                if(!this.selectedValue == true || this.isInvalid)
+                {
+                    this.isInvalid = false;
+                    return false;
+                }
+            }
+            this.classList.remove('no-value');
+            this.classList.remove('invalid-value');
+        return true;
+    },
+
+    _closeLambda: function() {
+        var item = this;
+        this.$.dropBox.className = "autocomplete ";
+    },
+
+    _onClear: function(event){
+        this.selectedValue = "";
+        this.selectedItem = null;
+    },
+
+    _selectedItemChanged: function () {
+        if (this.selectedItem != undefined) { 
+            this.selectedValue = this.selectedItem[this.tokenParam];
+            this.validate();
+        }
+    },
+
+    _checkFloatedLabel: function() {
+        if (this.$.autoSuggest.value.length > 0) {
+            this.classList.add('label-is-floating');
+        } else {
+            this.classList.remove('label-is-floating');
+        }
+    },
+
+    simpleTap:function(e){
+        if (!e) var e = window.event;
+        e.cancelBubble = true;
+        if (e.stopPropagation) e.stopPropagation();
+    },
+ 
+    clear: function() {
+        
+        this.classList.add('focused');     
+        this.selectedValue = "";
+        //this.selectedItem = null;
+        this.$.autoSuggest.value = "";
+        this.classList.remove('label-is-floating');
+    }
+});
 /*! jQuery v2.1.3 | (c) 2005, 2014 jQuery Foundation, Inc. | jquery.org/license */
 !function(a,b){"object"==typeof module&&"object"==typeof module.exports?module.exports=a.document?b(a,!0):function(a){if(!a.document)throw new Error("jQuery requires a window with a document");return b(a)}:b(a)}("undefined"!=typeof window?window:this,function(a,b){var c=[],d=c.slice,e=c.concat,f=c.push,g=c.indexOf,h={},i=h.toString,j=h.hasOwnProperty,k={},l=a.document,m="2.1.3",n=function(a,b){return new n.fn.init(a,b)},o=/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g,p=/^-ms-/,q=/-([\da-z])/gi,r=function(a,b){return b.toUpperCase()};n.fn=n.prototype={jquery:m,constructor:n,selector:"",length:0,toArray:function(){return d.call(this)},get:function(a){return null!=a?0>a?this[a+this.length]:this[a]:d.call(this)},pushStack:function(a){var b=n.merge(this.constructor(),a);return b.prevObject=this,b.context=this.context,b},each:function(a,b){return n.each(this,a,b)},map:function(a){return this.pushStack(n.map(this,function(b,c){return a.call(b,c,b)}))},slice:function(){return this.pushStack(d.apply(this,arguments))},first:function(){return this.eq(0)},last:function(){return this.eq(-1)},eq:function(a){var b=this.length,c=+a+(0>a?b:0);return this.pushStack(c>=0&&b>c?[this[c]]:[])},end:function(){return this.prevObject||this.constructor(null)},push:f,sort:c.sort,splice:c.splice},n.extend=n.fn.extend=function(){var a,b,c,d,e,f,g=arguments[0]||{},h=1,i=arguments.length,j=!1;for("boolean"==typeof g&&(j=g,g=arguments[h]||{},h++),"object"==typeof g||n.isFunction(g)||(g={}),h===i&&(g=this,h--);i>h;h++)if(null!=(a=arguments[h]))for(b in a)c=g[b],d=a[b],g!==d&&(j&&d&&(n.isPlainObject(d)||(e=n.isArray(d)))?(e?(e=!1,f=c&&n.isArray(c)?c:[]):f=c&&n.isPlainObject(c)?c:{},g[b]=n.extend(j,f,d)):void 0!==d&&(g[b]=d));return g},n.extend({expando:"jQuery"+(m+Math.random()).replace(/\D/g,""),isReady:!0,error:function(a){throw new Error(a)},noop:function(){},isFunction:function(a){return"function"===n.type(a)},isArray:Array.isArray,isWindow:function(a){return null!=a&&a===a.window},isNumeric:function(a){return!n.isArray(a)&&a-parseFloat(a)+1>=0},isPlainObject:function(a){return"object"!==n.type(a)||a.nodeType||n.isWindow(a)?!1:a.constructor&&!j.call(a.constructor.prototype,"isPrototypeOf")?!1:!0},isEmptyObject:function(a){var b;for(b in a)return!1;return!0},type:function(a){return null==a?a+"":"object"==typeof a||"function"==typeof a?h[i.call(a)]||"object":typeof a},globalEval:function(a){var b,c=eval;a=n.trim(a),a&&(1===a.indexOf("use strict")?(b=l.createElement("script"),b.text=a,l.head.appendChild(b).parentNode.removeChild(b)):c(a))},camelCase:function(a){return a.replace(p,"ms-").replace(q,r)},nodeName:function(a,b){return a.nodeName&&a.nodeName.toLowerCase()===b.toLowerCase()},each:function(a,b,c){var d,e=0,f=a.length,g=s(a);if(c){if(g){for(;f>e;e++)if(d=b.apply(a[e],c),d===!1)break}else for(e in a)if(d=b.apply(a[e],c),d===!1)break}else if(g){for(;f>e;e++)if(d=b.call(a[e],e,a[e]),d===!1)break}else for(e in a)if(d=b.call(a[e],e,a[e]),d===!1)break;return a},trim:function(a){return null==a?"":(a+"").replace(o,"")},makeArray:function(a,b){var c=b||[];return null!=a&&(s(Object(a))?n.merge(c,"string"==typeof a?[a]:a):f.call(c,a)),c},inArray:function(a,b,c){return null==b?-1:g.call(b,a,c)},merge:function(a,b){for(var c=+b.length,d=0,e=a.length;c>d;d++)a[e++]=b[d];return a.length=e,a},grep:function(a,b,c){for(var d,e=[],f=0,g=a.length,h=!c;g>f;f++)d=!b(a[f],f),d!==h&&e.push(a[f]);return e},map:function(a,b,c){var d,f=0,g=a.length,h=s(a),i=[];if(h)for(;g>f;f++)d=b(a[f],f,c),null!=d&&i.push(d);else for(f in a)d=b(a[f],f,c),null!=d&&i.push(d);return e.apply([],i)},guid:1,proxy:function(a,b){var c,e,f;return"string"==typeof b&&(c=a[b],b=a,a=c),n.isFunction(a)?(e=d.call(arguments,2),f=function(){return a.apply(b||this,e.concat(d.call(arguments)))},f.guid=a.guid=a.guid||n.guid++,f):void 0},now:Date.now,support:k}),n.each("Boolean Number String Function Array Date RegExp Object Error".split(" "),function(a,b){h["[object "+b+"]"]=b.toLowerCase()});function s(a){var b=a.length,c=n.type(a);return"function"===c||n.isWindow(a)?!1:1===a.nodeType&&b?!0:"array"===c||0===b||"number"==typeof b&&b>0&&b-1 in a}var t=function(a){var b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u="sizzle"+1*new Date,v=a.document,w=0,x=0,y=hb(),z=hb(),A=hb(),B=function(a,b){return a===b&&(l=!0),0},C=1<<31,D={}.hasOwnProperty,E=[],F=E.pop,G=E.push,H=E.push,I=E.slice,J=function(a,b){for(var c=0,d=a.length;d>c;c++)if(a[c]===b)return c;return-1},K="checked|selected|async|autofocus|autoplay|controls|defer|disabled|hidden|ismap|loop|multiple|open|readonly|required|scoped",L="[\\x20\\t\\r\\n\\f]",M="(?:\\\\.|[\\w-]|[^\\x00-\\xa0])+",N=M.replace("w","w#"),O="\\["+L+"*("+M+")(?:"+L+"*([*^$|!~]?=)"+L+"*(?:'((?:\\\\.|[^\\\\'])*)'|\"((?:\\\\.|[^\\\\\"])*)\"|("+N+"))|)"+L+"*\\]",P=":("+M+")(?:\\((('((?:\\\\.|[^\\\\'])*)'|\"((?:\\\\.|[^\\\\\"])*)\")|((?:\\\\.|[^\\\\()[\\]]|"+O+")*)|.*)\\)|)",Q=new RegExp(L+"+","g"),R=new RegExp("^"+L+"+|((?:^|[^\\\\])(?:\\\\.)*)"+L+"+$","g"),S=new RegExp("^"+L+"*,"+L+"*"),T=new RegExp("^"+L+"*([>+~]|"+L+")"+L+"*"),U=new RegExp("="+L+"*([^\\]'\"]*?)"+L+"*\\]","g"),V=new RegExp(P),W=new RegExp("^"+N+"$"),X={ID:new RegExp("^#("+M+")"),CLASS:new RegExp("^\\.("+M+")"),TAG:new RegExp("^("+M.replace("w","w*")+")"),ATTR:new RegExp("^"+O),PSEUDO:new RegExp("^"+P),CHILD:new RegExp("^:(only|first|last|nth|nth-last)-(child|of-type)(?:\\("+L+"*(even|odd|(([+-]|)(\\d*)n|)"+L+"*(?:([+-]|)"+L+"*(\\d+)|))"+L+"*\\)|)","i"),bool:new RegExp("^(?:"+K+")$","i"),needsContext:new RegExp("^"+L+"*[>+~]|:(even|odd|eq|gt|lt|nth|first|last)(?:\\("+L+"*((?:-\\d)?\\d*)"+L+"*\\)|)(?=[^-]|$)","i")},Y=/^(?:input|select|textarea|button)$/i,Z=/^h\d$/i,$=/^[^{]+\{\s*\[native \w/,_=/^(?:#([\w-]+)|(\w+)|\.([\w-]+))$/,ab=/[+~]/,bb=/'|\\/g,cb=new RegExp("\\\\([\\da-f]{1,6}"+L+"?|("+L+")|.)","ig"),db=function(a,b,c){var d="0x"+b-65536;return d!==d||c?b:0>d?String.fromCharCode(d+65536):String.fromCharCode(d>>10|55296,1023&d|56320)},eb=function(){m()};try{H.apply(E=I.call(v.childNodes),v.childNodes),E[v.childNodes.length].nodeType}catch(fb){H={apply:E.length?function(a,b){G.apply(a,I.call(b))}:function(a,b){var c=a.length,d=0;while(a[c++]=b[d++]);a.length=c-1}}}function gb(a,b,d,e){var f,h,j,k,l,o,r,s,w,x;if((b?b.ownerDocument||b:v)!==n&&m(b),b=b||n,d=d||[],k=b.nodeType,"string"!=typeof a||!a||1!==k&&9!==k&&11!==k)return d;if(!e&&p){if(11!==k&&(f=_.exec(a)))if(j=f[1]){if(9===k){if(h=b.getElementById(j),!h||!h.parentNode)return d;if(h.id===j)return d.push(h),d}else if(b.ownerDocument&&(h=b.ownerDocument.getElementById(j))&&t(b,h)&&h.id===j)return d.push(h),d}else{if(f[2])return H.apply(d,b.getElementsByTagName(a)),d;if((j=f[3])&&c.getElementsByClassName)return H.apply(d,b.getElementsByClassName(j)),d}if(c.qsa&&(!q||!q.test(a))){if(s=r=u,w=b,x=1!==k&&a,1===k&&"object"!==b.nodeName.toLowerCase()){o=g(a),(r=b.getAttribute("id"))?s=r.replace(bb,"\\$&"):b.setAttribute("id",s),s="[id='"+s+"'] ",l=o.length;while(l--)o[l]=s+rb(o[l]);w=ab.test(a)&&pb(b.parentNode)||b,x=o.join(",")}if(x)try{return H.apply(d,w.querySelectorAll(x)),d}catch(y){}finally{r||b.removeAttribute("id")}}}return i(a.replace(R,"$1"),b,d,e)}function hb(){var a=[];function b(c,e){return a.push(c+" ")>d.cacheLength&&delete b[a.shift()],b[c+" "]=e}return b}function ib(a){return a[u]=!0,a}function jb(a){var b=n.createElement("div");try{return!!a(b)}catch(c){return!1}finally{b.parentNode&&b.parentNode.removeChild(b),b=null}}function kb(a,b){var c=a.split("|"),e=a.length;while(e--)d.attrHandle[c[e]]=b}function lb(a,b){var c=b&&a,d=c&&1===a.nodeType&&1===b.nodeType&&(~b.sourceIndex||C)-(~a.sourceIndex||C);if(d)return d;if(c)while(c=c.nextSibling)if(c===b)return-1;return a?1:-1}function mb(a){return function(b){var c=b.nodeName.toLowerCase();return"input"===c&&b.type===a}}function nb(a){return function(b){var c=b.nodeName.toLowerCase();return("input"===c||"button"===c)&&b.type===a}}function ob(a){return ib(function(b){return b=+b,ib(function(c,d){var e,f=a([],c.length,b),g=f.length;while(g--)c[e=f[g]]&&(c[e]=!(d[e]=c[e]))})})}function pb(a){return a&&"undefined"!=typeof a.getElementsByTagName&&a}c=gb.support={},f=gb.isXML=function(a){var b=a&&(a.ownerDocument||a).documentElement;return b?"HTML"!==b.nodeName:!1},m=gb.setDocument=function(a){var b,e,g=a?a.ownerDocument||a:v;return g!==n&&9===g.nodeType&&g.documentElement?(n=g,o=g.documentElement,e=g.defaultView,e&&e!==e.top&&(e.addEventListener?e.addEventListener("unload",eb,!1):e.attachEvent&&e.attachEvent("onunload",eb)),p=!f(g),c.attributes=jb(function(a){return a.className="i",!a.getAttribute("className")}),c.getElementsByTagName=jb(function(a){return a.appendChild(g.createComment("")),!a.getElementsByTagName("*").length}),c.getElementsByClassName=$.test(g.getElementsByClassName),c.getById=jb(function(a){return o.appendChild(a).id=u,!g.getElementsByName||!g.getElementsByName(u).length}),c.getById?(d.find.ID=function(a,b){if("undefined"!=typeof b.getElementById&&p){var c=b.getElementById(a);return c&&c.parentNode?[c]:[]}},d.filter.ID=function(a){var b=a.replace(cb,db);return function(a){return a.getAttribute("id")===b}}):(delete d.find.ID,d.filter.ID=function(a){var b=a.replace(cb,db);return function(a){var c="undefined"!=typeof a.getAttributeNode&&a.getAttributeNode("id");return c&&c.value===b}}),d.find.TAG=c.getElementsByTagName?function(a,b){return"undefined"!=typeof b.getElementsByTagName?b.getElementsByTagName(a):c.qsa?b.querySelectorAll(a):void 0}:function(a,b){var c,d=[],e=0,f=b.getElementsByTagName(a);if("*"===a){while(c=f[e++])1===c.nodeType&&d.push(c);return d}return f},d.find.CLASS=c.getElementsByClassName&&function(a,b){return p?b.getElementsByClassName(a):void 0},r=[],q=[],(c.qsa=$.test(g.querySelectorAll))&&(jb(function(a){o.appendChild(a).innerHTML="<a id='"+u+"'></a><select id='"+u+"-\f]' msallowcapture=''><option selected=''></option></select>",a.querySelectorAll("[msallowcapture^='']").length&&q.push("[*^$]="+L+"*(?:''|\"\")"),a.querySelectorAll("[selected]").length||q.push("\\["+L+"*(?:value|"+K+")"),a.querySelectorAll("[id~="+u+"-]").length||q.push("~="),a.querySelectorAll(":checked").length||q.push(":checked"),a.querySelectorAll("a#"+u+"+*").length||q.push(".#.+[+~]")}),jb(function(a){var b=g.createElement("input");b.setAttribute("type","hidden"),a.appendChild(b).setAttribute("name","D"),a.querySelectorAll("[name=d]").length&&q.push("name"+L+"*[*^$|!~]?="),a.querySelectorAll(":enabled").length||q.push(":enabled",":disabled"),a.querySelectorAll("*,:x"),q.push(",.*:")})),(c.matchesSelector=$.test(s=o.matches||o.webkitMatchesSelector||o.mozMatchesSelector||o.oMatchesSelector||o.msMatchesSelector))&&jb(function(a){c.disconnectedMatch=s.call(a,"div"),s.call(a,"[s!='']:x"),r.push("!=",P)}),q=q.length&&new RegExp(q.join("|")),r=r.length&&new RegExp(r.join("|")),b=$.test(o.compareDocumentPosition),t=b||$.test(o.contains)?function(a,b){var c=9===a.nodeType?a.documentElement:a,d=b&&b.parentNode;return a===d||!(!d||1!==d.nodeType||!(c.contains?c.contains(d):a.compareDocumentPosition&&16&a.compareDocumentPosition(d)))}:function(a,b){if(b)while(b=b.parentNode)if(b===a)return!0;return!1},B=b?function(a,b){if(a===b)return l=!0,0;var d=!a.compareDocumentPosition-!b.compareDocumentPosition;return d?d:(d=(a.ownerDocument||a)===(b.ownerDocument||b)?a.compareDocumentPosition(b):1,1&d||!c.sortDetached&&b.compareDocumentPosition(a)===d?a===g||a.ownerDocument===v&&t(v,a)?-1:b===g||b.ownerDocument===v&&t(v,b)?1:k?J(k,a)-J(k,b):0:4&d?-1:1)}:function(a,b){if(a===b)return l=!0,0;var c,d=0,e=a.parentNode,f=b.parentNode,h=[a],i=[b];if(!e||!f)return a===g?-1:b===g?1:e?-1:f?1:k?J(k,a)-J(k,b):0;if(e===f)return lb(a,b);c=a;while(c=c.parentNode)h.unshift(c);c=b;while(c=c.parentNode)i.unshift(c);while(h[d]===i[d])d++;return d?lb(h[d],i[d]):h[d]===v?-1:i[d]===v?1:0},g):n},gb.matches=function(a,b){return gb(a,null,null,b)},gb.matchesSelector=function(a,b){if((a.ownerDocument||a)!==n&&m(a),b=b.replace(U,"='$1']"),!(!c.matchesSelector||!p||r&&r.test(b)||q&&q.test(b)))try{var d=s.call(a,b);if(d||c.disconnectedMatch||a.document&&11!==a.document.nodeType)return d}catch(e){}return gb(b,n,null,[a]).length>0},gb.contains=function(a,b){return(a.ownerDocument||a)!==n&&m(a),t(a,b)},gb.attr=function(a,b){(a.ownerDocument||a)!==n&&m(a);var e=d.attrHandle[b.toLowerCase()],f=e&&D.call(d.attrHandle,b.toLowerCase())?e(a,b,!p):void 0;return void 0!==f?f:c.attributes||!p?a.getAttribute(b):(f=a.getAttributeNode(b))&&f.specified?f.value:null},gb.error=function(a){throw new Error("Syntax error, unrecognized expression: "+a)},gb.uniqueSort=function(a){var b,d=[],e=0,f=0;if(l=!c.detectDuplicates,k=!c.sortStable&&a.slice(0),a.sort(B),l){while(b=a[f++])b===a[f]&&(e=d.push(f));while(e--)a.splice(d[e],1)}return k=null,a},e=gb.getText=function(a){var b,c="",d=0,f=a.nodeType;if(f){if(1===f||9===f||11===f){if("string"==typeof a.textContent)return a.textContent;for(a=a.firstChild;a;a=a.nextSibling)c+=e(a)}else if(3===f||4===f)return a.nodeValue}else while(b=a[d++])c+=e(b);return c},d=gb.selectors={cacheLength:50,createPseudo:ib,match:X,attrHandle:{},find:{},relative:{">":{dir:"parentNode",first:!0}," ":{dir:"parentNode"},"+":{dir:"previousSibling",first:!0},"~":{dir:"previousSibling"}},preFilter:{ATTR:function(a){return a[1]=a[1].replace(cb,db),a[3]=(a[3]||a[4]||a[5]||"").replace(cb,db),"~="===a[2]&&(a[3]=" "+a[3]+" "),a.slice(0,4)},CHILD:function(a){return a[1]=a[1].toLowerCase(),"nth"===a[1].slice(0,3)?(a[3]||gb.error(a[0]),a[4]=+(a[4]?a[5]+(a[6]||1):2*("even"===a[3]||"odd"===a[3])),a[5]=+(a[7]+a[8]||"odd"===a[3])):a[3]&&gb.error(a[0]),a},PSEUDO:function(a){var b,c=!a[6]&&a[2];return X.CHILD.test(a[0])?null:(a[3]?a[2]=a[4]||a[5]||"":c&&V.test(c)&&(b=g(c,!0))&&(b=c.indexOf(")",c.length-b)-c.length)&&(a[0]=a[0].slice(0,b),a[2]=c.slice(0,b)),a.slice(0,3))}},filter:{TAG:function(a){var b=a.replace(cb,db).toLowerCase();return"*"===a?function(){return!0}:function(a){return a.nodeName&&a.nodeName.toLowerCase()===b}},CLASS:function(a){var b=y[a+" "];return b||(b=new RegExp("(^|"+L+")"+a+"("+L+"|$)"))&&y(a,function(a){return b.test("string"==typeof a.className&&a.className||"undefined"!=typeof a.getAttribute&&a.getAttribute("class")||"")})},ATTR:function(a,b,c){return function(d){var e=gb.attr(d,a);return null==e?"!="===b:b?(e+="","="===b?e===c:"!="===b?e!==c:"^="===b?c&&0===e.indexOf(c):"*="===b?c&&e.indexOf(c)>-1:"$="===b?c&&e.slice(-c.length)===c:"~="===b?(" "+e.replace(Q," ")+" ").indexOf(c)>-1:"|="===b?e===c||e.slice(0,c.length+1)===c+"-":!1):!0}},CHILD:function(a,b,c,d,e){var f="nth"!==a.slice(0,3),g="last"!==a.slice(-4),h="of-type"===b;return 1===d&&0===e?function(a){return!!a.parentNode}:function(b,c,i){var j,k,l,m,n,o,p=f!==g?"nextSibling":"previousSibling",q=b.parentNode,r=h&&b.nodeName.toLowerCase(),s=!i&&!h;if(q){if(f){while(p){l=b;while(l=l[p])if(h?l.nodeName.toLowerCase()===r:1===l.nodeType)return!1;o=p="only"===a&&!o&&"nextSibling"}return!0}if(o=[g?q.firstChild:q.lastChild],g&&s){k=q[u]||(q[u]={}),j=k[a]||[],n=j[0]===w&&j[1],m=j[0]===w&&j[2],l=n&&q.childNodes[n];while(l=++n&&l&&l[p]||(m=n=0)||o.pop())if(1===l.nodeType&&++m&&l===b){k[a]=[w,n,m];break}}else if(s&&(j=(b[u]||(b[u]={}))[a])&&j[0]===w)m=j[1];else while(l=++n&&l&&l[p]||(m=n=0)||o.pop())if((h?l.nodeName.toLowerCase()===r:1===l.nodeType)&&++m&&(s&&((l[u]||(l[u]={}))[a]=[w,m]),l===b))break;return m-=e,m===d||m%d===0&&m/d>=0}}},PSEUDO:function(a,b){var c,e=d.pseudos[a]||d.setFilters[a.toLowerCase()]||gb.error("unsupported pseudo: "+a);return e[u]?e(b):e.length>1?(c=[a,a,"",b],d.setFilters.hasOwnProperty(a.toLowerCase())?ib(function(a,c){var d,f=e(a,b),g=f.length;while(g--)d=J(a,f[g]),a[d]=!(c[d]=f[g])}):function(a){return e(a,0,c)}):e}},pseudos:{not:ib(function(a){var b=[],c=[],d=h(a.replace(R,"$1"));return d[u]?ib(function(a,b,c,e){var f,g=d(a,null,e,[]),h=a.length;while(h--)(f=g[h])&&(a[h]=!(b[h]=f))}):function(a,e,f){return b[0]=a,d(b,null,f,c),b[0]=null,!c.pop()}}),has:ib(function(a){return function(b){return gb(a,b).length>0}}),contains:ib(function(a){return a=a.replace(cb,db),function(b){return(b.textContent||b.innerText||e(b)).indexOf(a)>-1}}),lang:ib(function(a){return W.test(a||"")||gb.error("unsupported lang: "+a),a=a.replace(cb,db).toLowerCase(),function(b){var c;do if(c=p?b.lang:b.getAttribute("xml:lang")||b.getAttribute("lang"))return c=c.toLowerCase(),c===a||0===c.indexOf(a+"-");while((b=b.parentNode)&&1===b.nodeType);return!1}}),target:function(b){var c=a.location&&a.location.hash;return c&&c.slice(1)===b.id},root:function(a){return a===o},focus:function(a){return a===n.activeElement&&(!n.hasFocus||n.hasFocus())&&!!(a.type||a.href||~a.tabIndex)},enabled:function(a){return a.disabled===!1},disabled:function(a){return a.disabled===!0},checked:function(a){var b=a.nodeName.toLowerCase();return"input"===b&&!!a.checked||"option"===b&&!!a.selected},selected:function(a){return a.parentNode&&a.parentNode.selectedIndex,a.selected===!0},empty:function(a){for(a=a.firstChild;a;a=a.nextSibling)if(a.nodeType<6)return!1;return!0},parent:function(a){return!d.pseudos.empty(a)},header:function(a){return Z.test(a.nodeName)},input:function(a){return Y.test(a.nodeName)},button:function(a){var b=a.nodeName.toLowerCase();return"input"===b&&"button"===a.type||"button"===b},text:function(a){var b;return"input"===a.nodeName.toLowerCase()&&"text"===a.type&&(null==(b=a.getAttribute("type"))||"text"===b.toLowerCase())},first:ob(function(){return[0]}),last:ob(function(a,b){return[b-1]}),eq:ob(function(a,b,c){return[0>c?c+b:c]}),even:ob(function(a,b){for(var c=0;b>c;c+=2)a.push(c);return a}),odd:ob(function(a,b){for(var c=1;b>c;c+=2)a.push(c);return a}),lt:ob(function(a,b,c){for(var d=0>c?c+b:c;--d>=0;)a.push(d);return a}),gt:ob(function(a,b,c){for(var d=0>c?c+b:c;++d<b;)a.push(d);return a})}},d.pseudos.nth=d.pseudos.eq;for(b in{radio:!0,checkbox:!0,file:!0,password:!0,image:!0})d.pseudos[b]=mb(b);for(b in{submit:!0,reset:!0})d.pseudos[b]=nb(b);function qb(){}qb.prototype=d.filters=d.pseudos,d.setFilters=new qb,g=gb.tokenize=function(a,b){var c,e,f,g,h,i,j,k=z[a+" "];if(k)return b?0:k.slice(0);h=a,i=[],j=d.preFilter;while(h){(!c||(e=S.exec(h)))&&(e&&(h=h.slice(e[0].length)||h),i.push(f=[])),c=!1,(e=T.exec(h))&&(c=e.shift(),f.push({value:c,type:e[0].replace(R," ")}),h=h.slice(c.length));for(g in d.filter)!(e=X[g].exec(h))||j[g]&&!(e=j[g](e))||(c=e.shift(),f.push({value:c,type:g,matches:e}),h=h.slice(c.length));if(!c)break}return b?h.length:h?gb.error(a):z(a,i).slice(0)};function rb(a){for(var b=0,c=a.length,d="";c>b;b++)d+=a[b].value;return d}function sb(a,b,c){var d=b.dir,e=c&&"parentNode"===d,f=x++;return b.first?function(b,c,f){while(b=b[d])if(1===b.nodeType||e)return a(b,c,f)}:function(b,c,g){var h,i,j=[w,f];if(g){while(b=b[d])if((1===b.nodeType||e)&&a(b,c,g))return!0}else while(b=b[d])if(1===b.nodeType||e){if(i=b[u]||(b[u]={}),(h=i[d])&&h[0]===w&&h[1]===f)return j[2]=h[2];if(i[d]=j,j[2]=a(b,c,g))return!0}}}function tb(a){return a.length>1?function(b,c,d){var e=a.length;while(e--)if(!a[e](b,c,d))return!1;return!0}:a[0]}function ub(a,b,c){for(var d=0,e=b.length;e>d;d++)gb(a,b[d],c);return c}function vb(a,b,c,d,e){for(var f,g=[],h=0,i=a.length,j=null!=b;i>h;h++)(f=a[h])&&(!c||c(f,d,e))&&(g.push(f),j&&b.push(h));return g}function wb(a,b,c,d,e,f){return d&&!d[u]&&(d=wb(d)),e&&!e[u]&&(e=wb(e,f)),ib(function(f,g,h,i){var j,k,l,m=[],n=[],o=g.length,p=f||ub(b||"*",h.nodeType?[h]:h,[]),q=!a||!f&&b?p:vb(p,m,a,h,i),r=c?e||(f?a:o||d)?[]:g:q;if(c&&c(q,r,h,i),d){j=vb(r,n),d(j,[],h,i),k=j.length;while(k--)(l=j[k])&&(r[n[k]]=!(q[n[k]]=l))}if(f){if(e||a){if(e){j=[],k=r.length;while(k--)(l=r[k])&&j.push(q[k]=l);e(null,r=[],j,i)}k=r.length;while(k--)(l=r[k])&&(j=e?J(f,l):m[k])>-1&&(f[j]=!(g[j]=l))}}else r=vb(r===g?r.splice(o,r.length):r),e?e(null,g,r,i):H.apply(g,r)})}function xb(a){for(var b,c,e,f=a.length,g=d.relative[a[0].type],h=g||d.relative[" "],i=g?1:0,k=sb(function(a){return a===b},h,!0),l=sb(function(a){return J(b,a)>-1},h,!0),m=[function(a,c,d){var e=!g&&(d||c!==j)||((b=c).nodeType?k(a,c,d):l(a,c,d));return b=null,e}];f>i;i++)if(c=d.relative[a[i].type])m=[sb(tb(m),c)];else{if(c=d.filter[a[i].type].apply(null,a[i].matches),c[u]){for(e=++i;f>e;e++)if(d.relative[a[e].type])break;return wb(i>1&&tb(m),i>1&&rb(a.slice(0,i-1).concat({value:" "===a[i-2].type?"*":""})).replace(R,"$1"),c,e>i&&xb(a.slice(i,e)),f>e&&xb(a=a.slice(e)),f>e&&rb(a))}m.push(c)}return tb(m)}function yb(a,b){var c=b.length>0,e=a.length>0,f=function(f,g,h,i,k){var l,m,o,p=0,q="0",r=f&&[],s=[],t=j,u=f||e&&d.find.TAG("*",k),v=w+=null==t?1:Math.random()||.1,x=u.length;for(k&&(j=g!==n&&g);q!==x&&null!=(l=u[q]);q++){if(e&&l){m=0;while(o=a[m++])if(o(l,g,h)){i.push(l);break}k&&(w=v)}c&&((l=!o&&l)&&p--,f&&r.push(l))}if(p+=q,c&&q!==p){m=0;while(o=b[m++])o(r,s,g,h);if(f){if(p>0)while(q--)r[q]||s[q]||(s[q]=F.call(i));s=vb(s)}H.apply(i,s),k&&!f&&s.length>0&&p+b.length>1&&gb.uniqueSort(i)}return k&&(w=v,j=t),r};return c?ib(f):f}return h=gb.compile=function(a,b){var c,d=[],e=[],f=A[a+" "];if(!f){b||(b=g(a)),c=b.length;while(c--)f=xb(b[c]),f[u]?d.push(f):e.push(f);f=A(a,yb(e,d)),f.selector=a}return f},i=gb.select=function(a,b,e,f){var i,j,k,l,m,n="function"==typeof a&&a,o=!f&&g(a=n.selector||a);if(e=e||[],1===o.length){if(j=o[0]=o[0].slice(0),j.length>2&&"ID"===(k=j[0]).type&&c.getById&&9===b.nodeType&&p&&d.relative[j[1].type]){if(b=(d.find.ID(k.matches[0].replace(cb,db),b)||[])[0],!b)return e;n&&(b=b.parentNode),a=a.slice(j.shift().value.length)}i=X.needsContext.test(a)?0:j.length;while(i--){if(k=j[i],d.relative[l=k.type])break;if((m=d.find[l])&&(f=m(k.matches[0].replace(cb,db),ab.test(j[0].type)&&pb(b.parentNode)||b))){if(j.splice(i,1),a=f.length&&rb(j),!a)return H.apply(e,f),e;break}}}return(n||h(a,o))(f,b,!p,e,ab.test(a)&&pb(b.parentNode)||b),e},c.sortStable=u.split("").sort(B).join("")===u,c.detectDuplicates=!!l,m(),c.sortDetached=jb(function(a){return 1&a.compareDocumentPosition(n.createElement("div"))}),jb(function(a){return a.innerHTML="<a href='#'></a>","#"===a.firstChild.getAttribute("href")})||kb("type|href|height|width",function(a,b,c){return c?void 0:a.getAttribute(b,"type"===b.toLowerCase()?1:2)}),c.attributes&&jb(function(a){return a.innerHTML="<input/>",a.firstChild.setAttribute("value",""),""===a.firstChild.getAttribute("value")})||kb("value",function(a,b,c){return c||"input"!==a.nodeName.toLowerCase()?void 0:a.defaultValue}),jb(function(a){return null==a.getAttribute("disabled")})||kb(K,function(a,b,c){var d;return c?void 0:a[b]===!0?b.toLowerCase():(d=a.getAttributeNode(b))&&d.specified?d.value:null}),gb}(a);n.find=t,n.expr=t.selectors,n.expr[":"]=n.expr.pseudos,n.unique=t.uniqueSort,n.text=t.getText,n.isXMLDoc=t.isXML,n.contains=t.contains;var u=n.expr.match.needsContext,v=/^<(\w+)\s*\/?>(?:<\/\1>|)$/,w=/^.[^:#\[\.,]*$/;function x(a,b,c){if(n.isFunction(b))return n.grep(a,function(a,d){return!!b.call(a,d,a)!==c});if(b.nodeType)return n.grep(a,function(a){return a===b!==c});if("string"==typeof b){if(w.test(b))return n.filter(b,a,c);b=n.filter(b,a)}return n.grep(a,function(a){return g.call(b,a)>=0!==c})}n.filter=function(a,b,c){var d=b[0];return c&&(a=":not("+a+")"),1===b.length&&1===d.nodeType?n.find.matchesSelector(d,a)?[d]:[]:n.find.matches(a,n.grep(b,function(a){return 1===a.nodeType}))},n.fn.extend({find:function(a){var b,c=this.length,d=[],e=this;if("string"!=typeof a)return this.pushStack(n(a).filter(function(){for(b=0;c>b;b++)if(n.contains(e[b],this))return!0}));for(b=0;c>b;b++)n.find(a,e[b],d);return d=this.pushStack(c>1?n.unique(d):d),d.selector=this.selector?this.selector+" "+a:a,d},filter:function(a){return this.pushStack(x(this,a||[],!1))},not:function(a){return this.pushStack(x(this,a||[],!0))},is:function(a){return!!x(this,"string"==typeof a&&u.test(a)?n(a):a||[],!1).length}});var y,z=/^(?:\s*(<[\w\W]+>)[^>]*|#([\w-]*))$/,A=n.fn.init=function(a,b){var c,d;if(!a)return this;if("string"==typeof a){if(c="<"===a[0]&&">"===a[a.length-1]&&a.length>=3?[null,a,null]:z.exec(a),!c||!c[1]&&b)return!b||b.jquery?(b||y).find(a):this.constructor(b).find(a);if(c[1]){if(b=b instanceof n?b[0]:b,n.merge(this,n.parseHTML(c[1],b&&b.nodeType?b.ownerDocument||b:l,!0)),v.test(c[1])&&n.isPlainObject(b))for(c in b)n.isFunction(this[c])?this[c](b[c]):this.attr(c,b[c]);return this}return d=l.getElementById(c[2]),d&&d.parentNode&&(this.length=1,this[0]=d),this.context=l,this.selector=a,this}return a.nodeType?(this.context=this[0]=a,this.length=1,this):n.isFunction(a)?"undefined"!=typeof y.ready?y.ready(a):a(n):(void 0!==a.selector&&(this.selector=a.selector,this.context=a.context),n.makeArray(a,this))};A.prototype=n.fn,y=n(l);var B=/^(?:parents|prev(?:Until|All))/,C={children:!0,contents:!0,next:!0,prev:!0};n.extend({dir:function(a,b,c){var d=[],e=void 0!==c;while((a=a[b])&&9!==a.nodeType)if(1===a.nodeType){if(e&&n(a).is(c))break;d.push(a)}return d},sibling:function(a,b){for(var c=[];a;a=a.nextSibling)1===a.nodeType&&a!==b&&c.push(a);return c}}),n.fn.extend({has:function(a){var b=n(a,this),c=b.length;return this.filter(function(){for(var a=0;c>a;a++)if(n.contains(this,b[a]))return!0})},closest:function(a,b){for(var c,d=0,e=this.length,f=[],g=u.test(a)||"string"!=typeof a?n(a,b||this.context):0;e>d;d++)for(c=this[d];c&&c!==b;c=c.parentNode)if(c.nodeType<11&&(g?g.index(c)>-1:1===c.nodeType&&n.find.matchesSelector(c,a))){f.push(c);break}return this.pushStack(f.length>1?n.unique(f):f)},index:function(a){return a?"string"==typeof a?g.call(n(a),this[0]):g.call(this,a.jquery?a[0]:a):this[0]&&this[0].parentNode?this.first().prevAll().length:-1},add:function(a,b){return this.pushStack(n.unique(n.merge(this.get(),n(a,b))))},addBack:function(a){return this.add(null==a?this.prevObject:this.prevObject.filter(a))}});function D(a,b){while((a=a[b])&&1!==a.nodeType);return a}n.each({parent:function(a){var b=a.parentNode;return b&&11!==b.nodeType?b:null},parents:function(a){return n.dir(a,"parentNode")},parentsUntil:function(a,b,c){return n.dir(a,"parentNode",c)},next:function(a){return D(a,"nextSibling")},prev:function(a){return D(a,"previousSibling")},nextAll:function(a){return n.dir(a,"nextSibling")},prevAll:function(a){return n.dir(a,"previousSibling")},nextUntil:function(a,b,c){return n.dir(a,"nextSibling",c)},prevUntil:function(a,b,c){return n.dir(a,"previousSibling",c)},siblings:function(a){return n.sibling((a.parentNode||{}).firstChild,a)},children:function(a){return n.sibling(a.firstChild)},contents:function(a){return a.contentDocument||n.merge([],a.childNodes)}},function(a,b){n.fn[a]=function(c,d){var e=n.map(this,b,c);return"Until"!==a.slice(-5)&&(d=c),d&&"string"==typeof d&&(e=n.filter(d,e)),this.length>1&&(C[a]||n.unique(e),B.test(a)&&e.reverse()),this.pushStack(e)}});var E=/\S+/g,F={};function G(a){var b=F[a]={};return n.each(a.match(E)||[],function(a,c){b[c]=!0}),b}n.Callbacks=function(a){a="string"==typeof a?F[a]||G(a):n.extend({},a);var b,c,d,e,f,g,h=[],i=!a.once&&[],j=function(l){for(b=a.memory&&l,c=!0,g=e||0,e=0,f=h.length,d=!0;h&&f>g;g++)if(h[g].apply(l[0],l[1])===!1&&a.stopOnFalse){b=!1;break}d=!1,h&&(i?i.length&&j(i.shift()):b?h=[]:k.disable())},k={add:function(){if(h){var c=h.length;!function g(b){n.each(b,function(b,c){var d=n.type(c);"function"===d?a.unique&&k.has(c)||h.push(c):c&&c.length&&"string"!==d&&g(c)})}(arguments),d?f=h.length:b&&(e=c,j(b))}return this},remove:function(){return h&&n.each(arguments,function(a,b){var c;while((c=n.inArray(b,h,c))>-1)h.splice(c,1),d&&(f>=c&&f--,g>=c&&g--)}),this},has:function(a){return a?n.inArray(a,h)>-1:!(!h||!h.length)},empty:function(){return h=[],f=0,this},disable:function(){return h=i=b=void 0,this},disabled:function(){return!h},lock:function(){return i=void 0,b||k.disable(),this},locked:function(){return!i},fireWith:function(a,b){return!h||c&&!i||(b=b||[],b=[a,b.slice?b.slice():b],d?i.push(b):j(b)),this},fire:function(){return k.fireWith(this,arguments),this},fired:function(){return!!c}};return k},n.extend({Deferred:function(a){var b=[["resolve","done",n.Callbacks("once memory"),"resolved"],["reject","fail",n.Callbacks("once memory"),"rejected"],["notify","progress",n.Callbacks("memory")]],c="pending",d={state:function(){return c},always:function(){return e.done(arguments).fail(arguments),this},then:function(){var a=arguments;return n.Deferred(function(c){n.each(b,function(b,f){var g=n.isFunction(a[b])&&a[b];e[f[1]](function(){var a=g&&g.apply(this,arguments);a&&n.isFunction(a.promise)?a.promise().done(c.resolve).fail(c.reject).progress(c.notify):c[f[0]+"With"](this===d?c.promise():this,g?[a]:arguments)})}),a=null}).promise()},promise:function(a){return null!=a?n.extend(a,d):d}},e={};return d.pipe=d.then,n.each(b,function(a,f){var g=f[2],h=f[3];d[f[1]]=g.add,h&&g.add(function(){c=h},b[1^a][2].disable,b[2][2].lock),e[f[0]]=function(){return e[f[0]+"With"](this===e?d:this,arguments),this},e[f[0]+"With"]=g.fireWith}),d.promise(e),a&&a.call(e,e),e},when:function(a){var b=0,c=d.call(arguments),e=c.length,f=1!==e||a&&n.isFunction(a.promise)?e:0,g=1===f?a:n.Deferred(),h=function(a,b,c){return function(e){b[a]=this,c[a]=arguments.length>1?d.call(arguments):e,c===i?g.notifyWith(b,c):--f||g.resolveWith(b,c)}},i,j,k;if(e>1)for(i=new Array(e),j=new Array(e),k=new Array(e);e>b;b++)c[b]&&n.isFunction(c[b].promise)?c[b].promise().done(h(b,k,c)).fail(g.reject).progress(h(b,j,i)):--f;return f||g.resolveWith(k,c),g.promise()}});var H;n.fn.ready=function(a){return n.ready.promise().done(a),this},n.extend({isReady:!1,readyWait:1,holdReady:function(a){a?n.readyWait++:n.ready(!0)},ready:function(a){(a===!0?--n.readyWait:n.isReady)||(n.isReady=!0,a!==!0&&--n.readyWait>0||(H.resolveWith(l,[n]),n.fn.triggerHandler&&(n(l).triggerHandler("ready"),n(l).off("ready"))))}});function I(){l.removeEventListener("DOMContentLoaded",I,!1),a.removeEventListener("load",I,!1),n.ready()}n.ready.promise=function(b){return H||(H=n.Deferred(),"complete"===l.readyState?setTimeout(n.ready):(l.addEventListener("DOMContentLoaded",I,!1),a.addEventListener("load",I,!1))),H.promise(b)},n.ready.promise();var J=n.access=function(a,b,c,d,e,f,g){var h=0,i=a.length,j=null==c;if("object"===n.type(c)){e=!0;for(h in c)n.access(a,b,h,c[h],!0,f,g)}else if(void 0!==d&&(e=!0,n.isFunction(d)||(g=!0),j&&(g?(b.call(a,d),b=null):(j=b,b=function(a,b,c){return j.call(n(a),c)})),b))for(;i>h;h++)b(a[h],c,g?d:d.call(a[h],h,b(a[h],c)));return e?a:j?b.call(a):i?b(a[0],c):f};n.acceptData=function(a){return 1===a.nodeType||9===a.nodeType||!+a.nodeType};function K(){Object.defineProperty(this.cache={},0,{get:function(){return{}}}),this.expando=n.expando+K.uid++}K.uid=1,K.accepts=n.acceptData,K.prototype={key:function(a){if(!K.accepts(a))return 0;var b={},c=a[this.expando];if(!c){c=K.uid++;try{b[this.expando]={value:c},Object.defineProperties(a,b)}catch(d){b[this.expando]=c,n.extend(a,b)}}return this.cache[c]||(this.cache[c]={}),c},set:function(a,b,c){var d,e=this.key(a),f=this.cache[e];if("string"==typeof b)f[b]=c;else if(n.isEmptyObject(f))n.extend(this.cache[e],b);else for(d in b)f[d]=b[d];return f},get:function(a,b){var c=this.cache[this.key(a)];return void 0===b?c:c[b]},access:function(a,b,c){var d;return void 0===b||b&&"string"==typeof b&&void 0===c?(d=this.get(a,b),void 0!==d?d:this.get(a,n.camelCase(b))):(this.set(a,b,c),void 0!==c?c:b)},remove:function(a,b){var c,d,e,f=this.key(a),g=this.cache[f];if(void 0===b)this.cache[f]={};else{n.isArray(b)?d=b.concat(b.map(n.camelCase)):(e=n.camelCase(b),b in g?d=[b,e]:(d=e,d=d in g?[d]:d.match(E)||[])),c=d.length;while(c--)delete g[d[c]]}},hasData:function(a){return!n.isEmptyObject(this.cache[a[this.expando]]||{})},discard:function(a){a[this.expando]&&delete this.cache[a[this.expando]]}};var L=new K,M=new K,N=/^(?:\{[\w\W]*\}|\[[\w\W]*\])$/,O=/([A-Z])/g;function P(a,b,c){var d;if(void 0===c&&1===a.nodeType)if(d="data-"+b.replace(O,"-$1").toLowerCase(),c=a.getAttribute(d),"string"==typeof c){try{c="true"===c?!0:"false"===c?!1:"null"===c?null:+c+""===c?+c:N.test(c)?n.parseJSON(c):c}catch(e){}M.set(a,b,c)}else c=void 0;return c}n.extend({hasData:function(a){return M.hasData(a)||L.hasData(a)},data:function(a,b,c){return M.access(a,b,c)
 },removeData:function(a,b){M.remove(a,b)},_data:function(a,b,c){return L.access(a,b,c)},_removeData:function(a,b){L.remove(a,b)}}),n.fn.extend({data:function(a,b){var c,d,e,f=this[0],g=f&&f.attributes;if(void 0===a){if(this.length&&(e=M.get(f),1===f.nodeType&&!L.get(f,"hasDataAttrs"))){c=g.length;while(c--)g[c]&&(d=g[c].name,0===d.indexOf("data-")&&(d=n.camelCase(d.slice(5)),P(f,d,e[d])));L.set(f,"hasDataAttrs",!0)}return e}return"object"==typeof a?this.each(function(){M.set(this,a)}):J(this,function(b){var c,d=n.camelCase(a);if(f&&void 0===b){if(c=M.get(f,a),void 0!==c)return c;if(c=M.get(f,d),void 0!==c)return c;if(c=P(f,d,void 0),void 0!==c)return c}else this.each(function(){var c=M.get(this,d);M.set(this,d,b),-1!==a.indexOf("-")&&void 0!==c&&M.set(this,a,b)})},null,b,arguments.length>1,null,!0)},removeData:function(a){return this.each(function(){M.remove(this,a)})}}),n.extend({queue:function(a,b,c){var d;return a?(b=(b||"fx")+"queue",d=L.get(a,b),c&&(!d||n.isArray(c)?d=L.access(a,b,n.makeArray(c)):d.push(c)),d||[]):void 0},dequeue:function(a,b){b=b||"fx";var c=n.queue(a,b),d=c.length,e=c.shift(),f=n._queueHooks(a,b),g=function(){n.dequeue(a,b)};"inprogress"===e&&(e=c.shift(),d--),e&&("fx"===b&&c.unshift("inprogress"),delete f.stop,e.call(a,g,f)),!d&&f&&f.empty.fire()},_queueHooks:function(a,b){var c=b+"queueHooks";return L.get(a,c)||L.access(a,c,{empty:n.Callbacks("once memory").add(function(){L.remove(a,[b+"queue",c])})})}}),n.fn.extend({queue:function(a,b){var c=2;return"string"!=typeof a&&(b=a,a="fx",c--),arguments.length<c?n.queue(this[0],a):void 0===b?this:this.each(function(){var c=n.queue(this,a,b);n._queueHooks(this,a),"fx"===a&&"inprogress"!==c[0]&&n.dequeue(this,a)})},dequeue:function(a){return this.each(function(){n.dequeue(this,a)})},clearQueue:function(a){return this.queue(a||"fx",[])},promise:function(a,b){var c,d=1,e=n.Deferred(),f=this,g=this.length,h=function(){--d||e.resolveWith(f,[f])};"string"!=typeof a&&(b=a,a=void 0),a=a||"fx";while(g--)c=L.get(f[g],a+"queueHooks"),c&&c.empty&&(d++,c.empty.add(h));return h(),e.promise(b)}});var Q=/[+-]?(?:\d*\.|)\d+(?:[eE][+-]?\d+|)/.source,R=["Top","Right","Bottom","Left"],S=function(a,b){return a=b||a,"none"===n.css(a,"display")||!n.contains(a.ownerDocument,a)},T=/^(?:checkbox|radio)$/i;!function(){var a=l.createDocumentFragment(),b=a.appendChild(l.createElement("div")),c=l.createElement("input");c.setAttribute("type","radio"),c.setAttribute("checked","checked"),c.setAttribute("name","t"),b.appendChild(c),k.checkClone=b.cloneNode(!0).cloneNode(!0).lastChild.checked,b.innerHTML="<textarea>x</textarea>",k.noCloneChecked=!!b.cloneNode(!0).lastChild.defaultValue}();var U="undefined";k.focusinBubbles="onfocusin"in a;var V=/^key/,W=/^(?:mouse|pointer|contextmenu)|click/,X=/^(?:focusinfocus|focusoutblur)$/,Y=/^([^.]*)(?:\.(.+)|)$/;function Z(){return!0}function $(){return!1}function _(){try{return l.activeElement}catch(a){}}n.event={global:{},add:function(a,b,c,d,e){var f,g,h,i,j,k,l,m,o,p,q,r=L.get(a);if(r){c.handler&&(f=c,c=f.handler,e=f.selector),c.guid||(c.guid=n.guid++),(i=r.events)||(i=r.events={}),(g=r.handle)||(g=r.handle=function(b){return typeof n!==U&&n.event.triggered!==b.type?n.event.dispatch.apply(a,arguments):void 0}),b=(b||"").match(E)||[""],j=b.length;while(j--)h=Y.exec(b[j])||[],o=q=h[1],p=(h[2]||"").split(".").sort(),o&&(l=n.event.special[o]||{},o=(e?l.delegateType:l.bindType)||o,l=n.event.special[o]||{},k=n.extend({type:o,origType:q,data:d,handler:c,guid:c.guid,selector:e,needsContext:e&&n.expr.match.needsContext.test(e),namespace:p.join(".")},f),(m=i[o])||(m=i[o]=[],m.delegateCount=0,l.setup&&l.setup.call(a,d,p,g)!==!1||a.addEventListener&&a.addEventListener(o,g,!1)),l.add&&(l.add.call(a,k),k.handler.guid||(k.handler.guid=c.guid)),e?m.splice(m.delegateCount++,0,k):m.push(k),n.event.global[o]=!0)}},remove:function(a,b,c,d,e){var f,g,h,i,j,k,l,m,o,p,q,r=L.hasData(a)&&L.get(a);if(r&&(i=r.events)){b=(b||"").match(E)||[""],j=b.length;while(j--)if(h=Y.exec(b[j])||[],o=q=h[1],p=(h[2]||"").split(".").sort(),o){l=n.event.special[o]||{},o=(d?l.delegateType:l.bindType)||o,m=i[o]||[],h=h[2]&&new RegExp("(^|\\.)"+p.join("\\.(?:.*\\.|)")+"(\\.|$)"),g=f=m.length;while(f--)k=m[f],!e&&q!==k.origType||c&&c.guid!==k.guid||h&&!h.test(k.namespace)||d&&d!==k.selector&&("**"!==d||!k.selector)||(m.splice(f,1),k.selector&&m.delegateCount--,l.remove&&l.remove.call(a,k));g&&!m.length&&(l.teardown&&l.teardown.call(a,p,r.handle)!==!1||n.removeEvent(a,o,r.handle),delete i[o])}else for(o in i)n.event.remove(a,o+b[j],c,d,!0);n.isEmptyObject(i)&&(delete r.handle,L.remove(a,"events"))}},trigger:function(b,c,d,e){var f,g,h,i,k,m,o,p=[d||l],q=j.call(b,"type")?b.type:b,r=j.call(b,"namespace")?b.namespace.split("."):[];if(g=h=d=d||l,3!==d.nodeType&&8!==d.nodeType&&!X.test(q+n.event.triggered)&&(q.indexOf(".")>=0&&(r=q.split("."),q=r.shift(),r.sort()),k=q.indexOf(":")<0&&"on"+q,b=b[n.expando]?b:new n.Event(q,"object"==typeof b&&b),b.isTrigger=e?2:3,b.namespace=r.join("."),b.namespace_re=b.namespace?new RegExp("(^|\\.)"+r.join("\\.(?:.*\\.|)")+"(\\.|$)"):null,b.result=void 0,b.target||(b.target=d),c=null==c?[b]:n.makeArray(c,[b]),o=n.event.special[q]||{},e||!o.trigger||o.trigger.apply(d,c)!==!1)){if(!e&&!o.noBubble&&!n.isWindow(d)){for(i=o.delegateType||q,X.test(i+q)||(g=g.parentNode);g;g=g.parentNode)p.push(g),h=g;h===(d.ownerDocument||l)&&p.push(h.defaultView||h.parentWindow||a)}f=0;while((g=p[f++])&&!b.isPropagationStopped())b.type=f>1?i:o.bindType||q,m=(L.get(g,"events")||{})[b.type]&&L.get(g,"handle"),m&&m.apply(g,c),m=k&&g[k],m&&m.apply&&n.acceptData(g)&&(b.result=m.apply(g,c),b.result===!1&&b.preventDefault());return b.type=q,e||b.isDefaultPrevented()||o._default&&o._default.apply(p.pop(),c)!==!1||!n.acceptData(d)||k&&n.isFunction(d[q])&&!n.isWindow(d)&&(h=d[k],h&&(d[k]=null),n.event.triggered=q,d[q](),n.event.triggered=void 0,h&&(d[k]=h)),b.result}},dispatch:function(a){a=n.event.fix(a);var b,c,e,f,g,h=[],i=d.call(arguments),j=(L.get(this,"events")||{})[a.type]||[],k=n.event.special[a.type]||{};if(i[0]=a,a.delegateTarget=this,!k.preDispatch||k.preDispatch.call(this,a)!==!1){h=n.event.handlers.call(this,a,j),b=0;while((f=h[b++])&&!a.isPropagationStopped()){a.currentTarget=f.elem,c=0;while((g=f.handlers[c++])&&!a.isImmediatePropagationStopped())(!a.namespace_re||a.namespace_re.test(g.namespace))&&(a.handleObj=g,a.data=g.data,e=((n.event.special[g.origType]||{}).handle||g.handler).apply(f.elem,i),void 0!==e&&(a.result=e)===!1&&(a.preventDefault(),a.stopPropagation()))}return k.postDispatch&&k.postDispatch.call(this,a),a.result}},handlers:function(a,b){var c,d,e,f,g=[],h=b.delegateCount,i=a.target;if(h&&i.nodeType&&(!a.button||"click"!==a.type))for(;i!==this;i=i.parentNode||this)if(i.disabled!==!0||"click"!==a.type){for(d=[],c=0;h>c;c++)f=b[c],e=f.selector+" ",void 0===d[e]&&(d[e]=f.needsContext?n(e,this).index(i)>=0:n.find(e,this,null,[i]).length),d[e]&&d.push(f);d.length&&g.push({elem:i,handlers:d})}return h<b.length&&g.push({elem:this,handlers:b.slice(h)}),g},props:"altKey bubbles cancelable ctrlKey currentTarget eventPhase metaKey relatedTarget shiftKey target timeStamp view which".split(" "),fixHooks:{},keyHooks:{props:"char charCode key keyCode".split(" "),filter:function(a,b){return null==a.which&&(a.which=null!=b.charCode?b.charCode:b.keyCode),a}},mouseHooks:{props:"button buttons clientX clientY offsetX offsetY pageX pageY screenX screenY toElement".split(" "),filter:function(a,b){var c,d,e,f=b.button;return null==a.pageX&&null!=b.clientX&&(c=a.target.ownerDocument||l,d=c.documentElement,e=c.body,a.pageX=b.clientX+(d&&d.scrollLeft||e&&e.scrollLeft||0)-(d&&d.clientLeft||e&&e.clientLeft||0),a.pageY=b.clientY+(d&&d.scrollTop||e&&e.scrollTop||0)-(d&&d.clientTop||e&&e.clientTop||0)),a.which||void 0===f||(a.which=1&f?1:2&f?3:4&f?2:0),a}},fix:function(a){if(a[n.expando])return a;var b,c,d,e=a.type,f=a,g=this.fixHooks[e];g||(this.fixHooks[e]=g=W.test(e)?this.mouseHooks:V.test(e)?this.keyHooks:{}),d=g.props?this.props.concat(g.props):this.props,a=new n.Event(f),b=d.length;while(b--)c=d[b],a[c]=f[c];return a.target||(a.target=l),3===a.target.nodeType&&(a.target=a.target.parentNode),g.filter?g.filter(a,f):a},special:{load:{noBubble:!0},focus:{trigger:function(){return this!==_()&&this.focus?(this.focus(),!1):void 0},delegateType:"focusin"},blur:{trigger:function(){return this===_()&&this.blur?(this.blur(),!1):void 0},delegateType:"focusout"},click:{trigger:function(){return"checkbox"===this.type&&this.click&&n.nodeName(this,"input")?(this.click(),!1):void 0},_default:function(a){return n.nodeName(a.target,"a")}},beforeunload:{postDispatch:function(a){void 0!==a.result&&a.originalEvent&&(a.originalEvent.returnValue=a.result)}}},simulate:function(a,b,c,d){var e=n.extend(new n.Event,c,{type:a,isSimulated:!0,originalEvent:{}});d?n.event.trigger(e,null,b):n.event.dispatch.call(b,e),e.isDefaultPrevented()&&c.preventDefault()}},n.removeEvent=function(a,b,c){a.removeEventListener&&a.removeEventListener(b,c,!1)},n.Event=function(a,b){return this instanceof n.Event?(a&&a.type?(this.originalEvent=a,this.type=a.type,this.isDefaultPrevented=a.defaultPrevented||void 0===a.defaultPrevented&&a.returnValue===!1?Z:$):this.type=a,b&&n.extend(this,b),this.timeStamp=a&&a.timeStamp||n.now(),void(this[n.expando]=!0)):new n.Event(a,b)},n.Event.prototype={isDefaultPrevented:$,isPropagationStopped:$,isImmediatePropagationStopped:$,preventDefault:function(){var a=this.originalEvent;this.isDefaultPrevented=Z,a&&a.preventDefault&&a.preventDefault()},stopPropagation:function(){var a=this.originalEvent;this.isPropagationStopped=Z,a&&a.stopPropagation&&a.stopPropagation()},stopImmediatePropagation:function(){var a=this.originalEvent;this.isImmediatePropagationStopped=Z,a&&a.stopImmediatePropagation&&a.stopImmediatePropagation(),this.stopPropagation()}},n.each({mouseenter:"mouseover",mouseleave:"mouseout",pointerenter:"pointerover",pointerleave:"pointerout"},function(a,b){n.event.special[a]={delegateType:b,bindType:b,handle:function(a){var c,d=this,e=a.relatedTarget,f=a.handleObj;return(!e||e!==d&&!n.contains(d,e))&&(a.type=f.origType,c=f.handler.apply(this,arguments),a.type=b),c}}}),k.focusinBubbles||n.each({focus:"focusin",blur:"focusout"},function(a,b){var c=function(a){n.event.simulate(b,a.target,n.event.fix(a),!0)};n.event.special[b]={setup:function(){var d=this.ownerDocument||this,e=L.access(d,b);e||d.addEventListener(a,c,!0),L.access(d,b,(e||0)+1)},teardown:function(){var d=this.ownerDocument||this,e=L.access(d,b)-1;e?L.access(d,b,e):(d.removeEventListener(a,c,!0),L.remove(d,b))}}}),n.fn.extend({on:function(a,b,c,d,e){var f,g;if("object"==typeof a){"string"!=typeof b&&(c=c||b,b=void 0);for(g in a)this.on(g,b,c,a[g],e);return this}if(null==c&&null==d?(d=b,c=b=void 0):null==d&&("string"==typeof b?(d=c,c=void 0):(d=c,c=b,b=void 0)),d===!1)d=$;else if(!d)return this;return 1===e&&(f=d,d=function(a){return n().off(a),f.apply(this,arguments)},d.guid=f.guid||(f.guid=n.guid++)),this.each(function(){n.event.add(this,a,d,c,b)})},one:function(a,b,c,d){return this.on(a,b,c,d,1)},off:function(a,b,c){var d,e;if(a&&a.preventDefault&&a.handleObj)return d=a.handleObj,n(a.delegateTarget).off(d.namespace?d.origType+"."+d.namespace:d.origType,d.selector,d.handler),this;if("object"==typeof a){for(e in a)this.off(e,b,a[e]);return this}return(b===!1||"function"==typeof b)&&(c=b,b=void 0),c===!1&&(c=$),this.each(function(){n.event.remove(this,a,c,b)})},trigger:function(a,b){return this.each(function(){n.event.trigger(a,b,this)})},triggerHandler:function(a,b){var c=this[0];return c?n.event.trigger(a,b,c,!0):void 0}});var ab=/<(?!area|br|col|embed|hr|img|input|link|meta|param)(([\w:]+)[^>]*)\/>/gi,bb=/<([\w:]+)/,cb=/<|&#?\w+;/,db=/<(?:script|style|link)/i,eb=/checked\s*(?:[^=]|=\s*.checked.)/i,fb=/^$|\/(?:java|ecma)script/i,gb=/^true\/(.*)/,hb=/^\s*<!(?:\[CDATA\[|--)|(?:\]\]|--)>\s*$/g,ib={option:[1,"<select multiple='multiple'>","</select>"],thead:[1,"<table>","</table>"],col:[2,"<table><colgroup>","</colgroup></table>"],tr:[2,"<table><tbody>","</tbody></table>"],td:[3,"<table><tbody><tr>","</tr></tbody></table>"],_default:[0,"",""]};ib.optgroup=ib.option,ib.tbody=ib.tfoot=ib.colgroup=ib.caption=ib.thead,ib.th=ib.td;function jb(a,b){return n.nodeName(a,"table")&&n.nodeName(11!==b.nodeType?b:b.firstChild,"tr")?a.getElementsByTagName("tbody")[0]||a.appendChild(a.ownerDocument.createElement("tbody")):a}function kb(a){return a.type=(null!==a.getAttribute("type"))+"/"+a.type,a}function lb(a){var b=gb.exec(a.type);return b?a.type=b[1]:a.removeAttribute("type"),a}function mb(a,b){for(var c=0,d=a.length;d>c;c++)L.set(a[c],"globalEval",!b||L.get(b[c],"globalEval"))}function nb(a,b){var c,d,e,f,g,h,i,j;if(1===b.nodeType){if(L.hasData(a)&&(f=L.access(a),g=L.set(b,f),j=f.events)){delete g.handle,g.events={};for(e in j)for(c=0,d=j[e].length;d>c;c++)n.event.add(b,e,j[e][c])}M.hasData(a)&&(h=M.access(a),i=n.extend({},h),M.set(b,i))}}function ob(a,b){var c=a.getElementsByTagName?a.getElementsByTagName(b||"*"):a.querySelectorAll?a.querySelectorAll(b||"*"):[];return void 0===b||b&&n.nodeName(a,b)?n.merge([a],c):c}function pb(a,b){var c=b.nodeName.toLowerCase();"input"===c&&T.test(a.type)?b.checked=a.checked:("input"===c||"textarea"===c)&&(b.defaultValue=a.defaultValue)}n.extend({clone:function(a,b,c){var d,e,f,g,h=a.cloneNode(!0),i=n.contains(a.ownerDocument,a);if(!(k.noCloneChecked||1!==a.nodeType&&11!==a.nodeType||n.isXMLDoc(a)))for(g=ob(h),f=ob(a),d=0,e=f.length;e>d;d++)pb(f[d],g[d]);if(b)if(c)for(f=f||ob(a),g=g||ob(h),d=0,e=f.length;e>d;d++)nb(f[d],g[d]);else nb(a,h);return g=ob(h,"script"),g.length>0&&mb(g,!i&&ob(a,"script")),h},buildFragment:function(a,b,c,d){for(var e,f,g,h,i,j,k=b.createDocumentFragment(),l=[],m=0,o=a.length;o>m;m++)if(e=a[m],e||0===e)if("object"===n.type(e))n.merge(l,e.nodeType?[e]:e);else if(cb.test(e)){f=f||k.appendChild(b.createElement("div")),g=(bb.exec(e)||["",""])[1].toLowerCase(),h=ib[g]||ib._default,f.innerHTML=h[1]+e.replace(ab,"<$1></$2>")+h[2],j=h[0];while(j--)f=f.lastChild;n.merge(l,f.childNodes),f=k.firstChild,f.textContent=""}else l.push(b.createTextNode(e));k.textContent="",m=0;while(e=l[m++])if((!d||-1===n.inArray(e,d))&&(i=n.contains(e.ownerDocument,e),f=ob(k.appendChild(e),"script"),i&&mb(f),c)){j=0;while(e=f[j++])fb.test(e.type||"")&&c.push(e)}return k},cleanData:function(a){for(var b,c,d,e,f=n.event.special,g=0;void 0!==(c=a[g]);g++){if(n.acceptData(c)&&(e=c[L.expando],e&&(b=L.cache[e]))){if(b.events)for(d in b.events)f[d]?n.event.remove(c,d):n.removeEvent(c,d,b.handle);L.cache[e]&&delete L.cache[e]}delete M.cache[c[M.expando]]}}}),n.fn.extend({text:function(a){return J(this,function(a){return void 0===a?n.text(this):this.empty().each(function(){(1===this.nodeType||11===this.nodeType||9===this.nodeType)&&(this.textContent=a)})},null,a,arguments.length)},append:function(){return this.domManip(arguments,function(a){if(1===this.nodeType||11===this.nodeType||9===this.nodeType){var b=jb(this,a);b.appendChild(a)}})},prepend:function(){return this.domManip(arguments,function(a){if(1===this.nodeType||11===this.nodeType||9===this.nodeType){var b=jb(this,a);b.insertBefore(a,b.firstChild)}})},before:function(){return this.domManip(arguments,function(a){this.parentNode&&this.parentNode.insertBefore(a,this)})},after:function(){return this.domManip(arguments,function(a){this.parentNode&&this.parentNode.insertBefore(a,this.nextSibling)})},remove:function(a,b){for(var c,d=a?n.filter(a,this):this,e=0;null!=(c=d[e]);e++)b||1!==c.nodeType||n.cleanData(ob(c)),c.parentNode&&(b&&n.contains(c.ownerDocument,c)&&mb(ob(c,"script")),c.parentNode.removeChild(c));return this},empty:function(){for(var a,b=0;null!=(a=this[b]);b++)1===a.nodeType&&(n.cleanData(ob(a,!1)),a.textContent="");return this},clone:function(a,b){return a=null==a?!1:a,b=null==b?a:b,this.map(function(){return n.clone(this,a,b)})},html:function(a){return J(this,function(a){var b=this[0]||{},c=0,d=this.length;if(void 0===a&&1===b.nodeType)return b.innerHTML;if("string"==typeof a&&!db.test(a)&&!ib[(bb.exec(a)||["",""])[1].toLowerCase()]){a=a.replace(ab,"<$1></$2>");try{for(;d>c;c++)b=this[c]||{},1===b.nodeType&&(n.cleanData(ob(b,!1)),b.innerHTML=a);b=0}catch(e){}}b&&this.empty().append(a)},null,a,arguments.length)},replaceWith:function(){var a=arguments[0];return this.domManip(arguments,function(b){a=this.parentNode,n.cleanData(ob(this)),a&&a.replaceChild(b,this)}),a&&(a.length||a.nodeType)?this:this.remove()},detach:function(a){return this.remove(a,!0)},domManip:function(a,b){a=e.apply([],a);var c,d,f,g,h,i,j=0,l=this.length,m=this,o=l-1,p=a[0],q=n.isFunction(p);if(q||l>1&&"string"==typeof p&&!k.checkClone&&eb.test(p))return this.each(function(c){var d=m.eq(c);q&&(a[0]=p.call(this,c,d.html())),d.domManip(a,b)});if(l&&(c=n.buildFragment(a,this[0].ownerDocument,!1,this),d=c.firstChild,1===c.childNodes.length&&(c=d),d)){for(f=n.map(ob(c,"script"),kb),g=f.length;l>j;j++)h=c,j!==o&&(h=n.clone(h,!0,!0),g&&n.merge(f,ob(h,"script"))),b.call(this[j],h,j);if(g)for(i=f[f.length-1].ownerDocument,n.map(f,lb),j=0;g>j;j++)h=f[j],fb.test(h.type||"")&&!L.access(h,"globalEval")&&n.contains(i,h)&&(h.src?n._evalUrl&&n._evalUrl(h.src):n.globalEval(h.textContent.replace(hb,"")))}return this}}),n.each({appendTo:"append",prependTo:"prepend",insertBefore:"before",insertAfter:"after",replaceAll:"replaceWith"},function(a,b){n.fn[a]=function(a){for(var c,d=[],e=n(a),g=e.length-1,h=0;g>=h;h++)c=h===g?this:this.clone(!0),n(e[h])[b](c),f.apply(d,c.get());return this.pushStack(d)}});var qb,rb={};function sb(b,c){var d,e=n(c.createElement(b)).appendTo(c.body),f=a.getDefaultComputedStyle&&(d=a.getDefaultComputedStyle(e[0]))?d.display:n.css(e[0],"display");return e.detach(),f}function tb(a){var b=l,c=rb[a];return c||(c=sb(a,b),"none"!==c&&c||(qb=(qb||n("<iframe frameborder='0' width='0' height='0'/>")).appendTo(b.documentElement),b=qb[0].contentDocument,b.write(),b.close(),c=sb(a,b),qb.detach()),rb[a]=c),c}var ub=/^margin/,vb=new RegExp("^("+Q+")(?!px)[a-z%]+$","i"),wb=function(b){return b.ownerDocument.defaultView.opener?b.ownerDocument.defaultView.getComputedStyle(b,null):a.getComputedStyle(b,null)};function xb(a,b,c){var d,e,f,g,h=a.style;return c=c||wb(a),c&&(g=c.getPropertyValue(b)||c[b]),c&&(""!==g||n.contains(a.ownerDocument,a)||(g=n.style(a,b)),vb.test(g)&&ub.test(b)&&(d=h.width,e=h.minWidth,f=h.maxWidth,h.minWidth=h.maxWidth=h.width=g,g=c.width,h.width=d,h.minWidth=e,h.maxWidth=f)),void 0!==g?g+"":g}function yb(a,b){return{get:function(){return a()?void delete this.get:(this.get=b).apply(this,arguments)}}}!function(){var b,c,d=l.documentElement,e=l.createElement("div"),f=l.createElement("div");if(f.style){f.style.backgroundClip="content-box",f.cloneNode(!0).style.backgroundClip="",k.clearCloneStyle="content-box"===f.style.backgroundClip,e.style.cssText="border:0;width:0;height:0;top:0;left:-9999px;margin-top:1px;position:absolute",e.appendChild(f);function g(){f.style.cssText="-webkit-box-sizing:border-box;-moz-box-sizing:border-box;box-sizing:border-box;display:block;margin-top:1%;top:1%;border:1px;padding:1px;width:4px;position:absolute",f.innerHTML="",d.appendChild(e);var g=a.getComputedStyle(f,null);b="1%"!==g.top,c="4px"===g.width,d.removeChild(e)}a.getComputedStyle&&n.extend(k,{pixelPosition:function(){return g(),b},boxSizingReliable:function(){return null==c&&g(),c},reliableMarginRight:function(){var b,c=f.appendChild(l.createElement("div"));return c.style.cssText=f.style.cssText="-webkit-box-sizing:content-box;-moz-box-sizing:content-box;box-sizing:content-box;display:block;margin:0;border:0;padding:0",c.style.marginRight=c.style.width="0",f.style.width="1px",d.appendChild(e),b=!parseFloat(a.getComputedStyle(c,null).marginRight),d.removeChild(e),f.removeChild(c),b}})}}(),n.swap=function(a,b,c,d){var e,f,g={};for(f in b)g[f]=a.style[f],a.style[f]=b[f];e=c.apply(a,d||[]);for(f in b)a.style[f]=g[f];return e};var zb=/^(none|table(?!-c[ea]).+)/,Ab=new RegExp("^("+Q+")(.*)$","i"),Bb=new RegExp("^([+-])=("+Q+")","i"),Cb={position:"absolute",visibility:"hidden",display:"block"},Db={letterSpacing:"0",fontWeight:"400"},Eb=["Webkit","O","Moz","ms"];function Fb(a,b){if(b in a)return b;var c=b[0].toUpperCase()+b.slice(1),d=b,e=Eb.length;while(e--)if(b=Eb[e]+c,b in a)return b;return d}function Gb(a,b,c){var d=Ab.exec(b);return d?Math.max(0,d[1]-(c||0))+(d[2]||"px"):b}function Hb(a,b,c,d,e){for(var f=c===(d?"border":"content")?4:"width"===b?1:0,g=0;4>f;f+=2)"margin"===c&&(g+=n.css(a,c+R[f],!0,e)),d?("content"===c&&(g-=n.css(a,"padding"+R[f],!0,e)),"margin"!==c&&(g-=n.css(a,"border"+R[f]+"Width",!0,e))):(g+=n.css(a,"padding"+R[f],!0,e),"padding"!==c&&(g+=n.css(a,"border"+R[f]+"Width",!0,e)));return g}function Ib(a,b,c){var d=!0,e="width"===b?a.offsetWidth:a.offsetHeight,f=wb(a),g="border-box"===n.css(a,"boxSizing",!1,f);if(0>=e||null==e){if(e=xb(a,b,f),(0>e||null==e)&&(e=a.style[b]),vb.test(e))return e;d=g&&(k.boxSizingReliable()||e===a.style[b]),e=parseFloat(e)||0}return e+Hb(a,b,c||(g?"border":"content"),d,f)+"px"}function Jb(a,b){for(var c,d,e,f=[],g=0,h=a.length;h>g;g++)d=a[g],d.style&&(f[g]=L.get(d,"olddisplay"),c=d.style.display,b?(f[g]||"none"!==c||(d.style.display=""),""===d.style.display&&S(d)&&(f[g]=L.access(d,"olddisplay",tb(d.nodeName)))):(e=S(d),"none"===c&&e||L.set(d,"olddisplay",e?c:n.css(d,"display"))));for(g=0;h>g;g++)d=a[g],d.style&&(b&&"none"!==d.style.display&&""!==d.style.display||(d.style.display=b?f[g]||"":"none"));return a}n.extend({cssHooks:{opacity:{get:function(a,b){if(b){var c=xb(a,"opacity");return""===c?"1":c}}}},cssNumber:{columnCount:!0,fillOpacity:!0,flexGrow:!0,flexShrink:!0,fontWeight:!0,lineHeight:!0,opacity:!0,order:!0,orphans:!0,widows:!0,zIndex:!0,zoom:!0},cssProps:{"float":"cssFloat"},style:function(a,b,c,d){if(a&&3!==a.nodeType&&8!==a.nodeType&&a.style){var e,f,g,h=n.camelCase(b),i=a.style;return b=n.cssProps[h]||(n.cssProps[h]=Fb(i,h)),g=n.cssHooks[b]||n.cssHooks[h],void 0===c?g&&"get"in g&&void 0!==(e=g.get(a,!1,d))?e:i[b]:(f=typeof c,"string"===f&&(e=Bb.exec(c))&&(c=(e[1]+1)*e[2]+parseFloat(n.css(a,b)),f="number"),null!=c&&c===c&&("number"!==f||n.cssNumber[h]||(c+="px"),k.clearCloneStyle||""!==c||0!==b.indexOf("background")||(i[b]="inherit"),g&&"set"in g&&void 0===(c=g.set(a,c,d))||(i[b]=c)),void 0)}},css:function(a,b,c,d){var e,f,g,h=n.camelCase(b);return b=n.cssProps[h]||(n.cssProps[h]=Fb(a.style,h)),g=n.cssHooks[b]||n.cssHooks[h],g&&"get"in g&&(e=g.get(a,!0,c)),void 0===e&&(e=xb(a,b,d)),"normal"===e&&b in Db&&(e=Db[b]),""===c||c?(f=parseFloat(e),c===!0||n.isNumeric(f)?f||0:e):e}}),n.each(["height","width"],function(a,b){n.cssHooks[b]={get:function(a,c,d){return c?zb.test(n.css(a,"display"))&&0===a.offsetWidth?n.swap(a,Cb,function(){return Ib(a,b,d)}):Ib(a,b,d):void 0},set:function(a,c,d){var e=d&&wb(a);return Gb(a,c,d?Hb(a,b,d,"border-box"===n.css(a,"boxSizing",!1,e),e):0)}}}),n.cssHooks.marginRight=yb(k.reliableMarginRight,function(a,b){return b?n.swap(a,{display:"inline-block"},xb,[a,"marginRight"]):void 0}),n.each({margin:"",padding:"",border:"Width"},function(a,b){n.cssHooks[a+b]={expand:function(c){for(var d=0,e={},f="string"==typeof c?c.split(" "):[c];4>d;d++)e[a+R[d]+b]=f[d]||f[d-2]||f[0];return e}},ub.test(a)||(n.cssHooks[a+b].set=Gb)}),n.fn.extend({css:function(a,b){return J(this,function(a,b,c){var d,e,f={},g=0;if(n.isArray(b)){for(d=wb(a),e=b.length;e>g;g++)f[b[g]]=n.css(a,b[g],!1,d);return f}return void 0!==c?n.style(a,b,c):n.css(a,b)},a,b,arguments.length>1)},show:function(){return Jb(this,!0)},hide:function(){return Jb(this)},toggle:function(a){return"boolean"==typeof a?a?this.show():this.hide():this.each(function(){S(this)?n(this).show():n(this).hide()})}});function Kb(a,b,c,d,e){return new Kb.prototype.init(a,b,c,d,e)}n.Tween=Kb,Kb.prototype={constructor:Kb,init:function(a,b,c,d,e,f){this.elem=a,this.prop=c,this.easing=e||"swing",this.options=b,this.start=this.now=this.cur(),this.end=d,this.unit=f||(n.cssNumber[c]?"":"px")},cur:function(){var a=Kb.propHooks[this.prop];return a&&a.get?a.get(this):Kb.propHooks._default.get(this)},run:function(a){var b,c=Kb.propHooks[this.prop];return this.pos=b=this.options.duration?n.easing[this.easing](a,this.options.duration*a,0,1,this.options.duration):a,this.now=(this.end-this.start)*b+this.start,this.options.step&&this.options.step.call(this.elem,this.now,this),c&&c.set?c.set(this):Kb.propHooks._default.set(this),this}},Kb.prototype.init.prototype=Kb.prototype,Kb.propHooks={_default:{get:function(a){var b;return null==a.elem[a.prop]||a.elem.style&&null!=a.elem.style[a.prop]?(b=n.css(a.elem,a.prop,""),b&&"auto"!==b?b:0):a.elem[a.prop]},set:function(a){n.fx.step[a.prop]?n.fx.step[a.prop](a):a.elem.style&&(null!=a.elem.style[n.cssProps[a.prop]]||n.cssHooks[a.prop])?n.style(a.elem,a.prop,a.now+a.unit):a.elem[a.prop]=a.now}}},Kb.propHooks.scrollTop=Kb.propHooks.scrollLeft={set:function(a){a.elem.nodeType&&a.elem.parentNode&&(a.elem[a.prop]=a.now)}},n.easing={linear:function(a){return a},swing:function(a){return.5-Math.cos(a*Math.PI)/2}},n.fx=Kb.prototype.init,n.fx.step={};var Lb,Mb,Nb=/^(?:toggle|show|hide)$/,Ob=new RegExp("^(?:([+-])=|)("+Q+")([a-z%]*)$","i"),Pb=/queueHooks$/,Qb=[Vb],Rb={"*":[function(a,b){var c=this.createTween(a,b),d=c.cur(),e=Ob.exec(b),f=e&&e[3]||(n.cssNumber[a]?"":"px"),g=(n.cssNumber[a]||"px"!==f&&+d)&&Ob.exec(n.css(c.elem,a)),h=1,i=20;if(g&&g[3]!==f){f=f||g[3],e=e||[],g=+d||1;do h=h||".5",g/=h,n.style(c.elem,a,g+f);while(h!==(h=c.cur()/d)&&1!==h&&--i)}return e&&(g=c.start=+g||+d||0,c.unit=f,c.end=e[1]?g+(e[1]+1)*e[2]:+e[2]),c}]};function Sb(){return setTimeout(function(){Lb=void 0}),Lb=n.now()}function Tb(a,b){var c,d=0,e={height:a};for(b=b?1:0;4>d;d+=2-b)c=R[d],e["margin"+c]=e["padding"+c]=a;return b&&(e.opacity=e.width=a),e}function Ub(a,b,c){for(var d,e=(Rb[b]||[]).concat(Rb["*"]),f=0,g=e.length;g>f;f++)if(d=e[f].call(c,b,a))return d}function Vb(a,b,c){var d,e,f,g,h,i,j,k,l=this,m={},o=a.style,p=a.nodeType&&S(a),q=L.get(a,"fxshow");c.queue||(h=n._queueHooks(a,"fx"),null==h.unqueued&&(h.unqueued=0,i=h.empty.fire,h.empty.fire=function(){h.unqueued||i()}),h.unqueued++,l.always(function(){l.always(function(){h.unqueued--,n.queue(a,"fx").length||h.empty.fire()})})),1===a.nodeType&&("height"in b||"width"in b)&&(c.overflow=[o.overflow,o.overflowX,o.overflowY],j=n.css(a,"display"),k="none"===j?L.get(a,"olddisplay")||tb(a.nodeName):j,"inline"===k&&"none"===n.css(a,"float")&&(o.display="inline-block")),c.overflow&&(o.overflow="hidden",l.always(function(){o.overflow=c.overflow[0],o.overflowX=c.overflow[1],o.overflowY=c.overflow[2]}));for(d in b)if(e=b[d],Nb.exec(e)){if(delete b[d],f=f||"toggle"===e,e===(p?"hide":"show")){if("show"!==e||!q||void 0===q[d])continue;p=!0}m[d]=q&&q[d]||n.style(a,d)}else j=void 0;if(n.isEmptyObject(m))"inline"===("none"===j?tb(a.nodeName):j)&&(o.display=j);else{q?"hidden"in q&&(p=q.hidden):q=L.access(a,"fxshow",{}),f&&(q.hidden=!p),p?n(a).show():l.done(function(){n(a).hide()}),l.done(function(){var b;L.remove(a,"fxshow");for(b in m)n.style(a,b,m[b])});for(d in m)g=Ub(p?q[d]:0,d,l),d in q||(q[d]=g.start,p&&(g.end=g.start,g.start="width"===d||"height"===d?1:0))}}function Wb(a,b){var c,d,e,f,g;for(c in a)if(d=n.camelCase(c),e=b[d],f=a[c],n.isArray(f)&&(e=f[1],f=a[c]=f[0]),c!==d&&(a[d]=f,delete a[c]),g=n.cssHooks[d],g&&"expand"in g){f=g.expand(f),delete a[d];for(c in f)c in a||(a[c]=f[c],b[c]=e)}else b[d]=e}function Xb(a,b,c){var d,e,f=0,g=Qb.length,h=n.Deferred().always(function(){delete i.elem}),i=function(){if(e)return!1;for(var b=Lb||Sb(),c=Math.max(0,j.startTime+j.duration-b),d=c/j.duration||0,f=1-d,g=0,i=j.tweens.length;i>g;g++)j.tweens[g].run(f);return h.notifyWith(a,[j,f,c]),1>f&&i?c:(h.resolveWith(a,[j]),!1)},j=h.promise({elem:a,props:n.extend({},b),opts:n.extend(!0,{specialEasing:{}},c),originalProperties:b,originalOptions:c,startTime:Lb||Sb(),duration:c.duration,tweens:[],createTween:function(b,c){var d=n.Tween(a,j.opts,b,c,j.opts.specialEasing[b]||j.opts.easing);return j.tweens.push(d),d},stop:function(b){var c=0,d=b?j.tweens.length:0;if(e)return this;for(e=!0;d>c;c++)j.tweens[c].run(1);return b?h.resolveWith(a,[j,b]):h.rejectWith(a,[j,b]),this}}),k=j.props;for(Wb(k,j.opts.specialEasing);g>f;f++)if(d=Qb[f].call(j,a,k,j.opts))return d;return n.map(k,Ub,j),n.isFunction(j.opts.start)&&j.opts.start.call(a,j),n.fx.timer(n.extend(i,{elem:a,anim:j,queue:j.opts.queue})),j.progress(j.opts.progress).done(j.opts.done,j.opts.complete).fail(j.opts.fail).always(j.opts.always)}n.Animation=n.extend(Xb,{tweener:function(a,b){n.isFunction(a)?(b=a,a=["*"]):a=a.split(" ");for(var c,d=0,e=a.length;e>d;d++)c=a[d],Rb[c]=Rb[c]||[],Rb[c].unshift(b)},prefilter:function(a,b){b?Qb.unshift(a):Qb.push(a)}}),n.speed=function(a,b,c){var d=a&&"object"==typeof a?n.extend({},a):{complete:c||!c&&b||n.isFunction(a)&&a,duration:a,easing:c&&b||b&&!n.isFunction(b)&&b};return d.duration=n.fx.off?0:"number"==typeof d.duration?d.duration:d.duration in n.fx.speeds?n.fx.speeds[d.duration]:n.fx.speeds._default,(null==d.queue||d.queue===!0)&&(d.queue="fx"),d.old=d.complete,d.complete=function(){n.isFunction(d.old)&&d.old.call(this),d.queue&&n.dequeue(this,d.queue)},d},n.fn.extend({fadeTo:function(a,b,c,d){return this.filter(S).css("opacity",0).show().end().animate({opacity:b},a,c,d)},animate:function(a,b,c,d){var e=n.isEmptyObject(a),f=n.speed(b,c,d),g=function(){var b=Xb(this,n.extend({},a),f);(e||L.get(this,"finish"))&&b.stop(!0)};return g.finish=g,e||f.queue===!1?this.each(g):this.queue(f.queue,g)},stop:function(a,b,c){var d=function(a){var b=a.stop;delete a.stop,b(c)};return"string"!=typeof a&&(c=b,b=a,a=void 0),b&&a!==!1&&this.queue(a||"fx",[]),this.each(function(){var b=!0,e=null!=a&&a+"queueHooks",f=n.timers,g=L.get(this);if(e)g[e]&&g[e].stop&&d(g[e]);else for(e in g)g[e]&&g[e].stop&&Pb.test(e)&&d(g[e]);for(e=f.length;e--;)f[e].elem!==this||null!=a&&f[e].queue!==a||(f[e].anim.stop(c),b=!1,f.splice(e,1));(b||!c)&&n.dequeue(this,a)})},finish:function(a){return a!==!1&&(a=a||"fx"),this.each(function(){var b,c=L.get(this),d=c[a+"queue"],e=c[a+"queueHooks"],f=n.timers,g=d?d.length:0;for(c.finish=!0,n.queue(this,a,[]),e&&e.stop&&e.stop.call(this,!0),b=f.length;b--;)f[b].elem===this&&f[b].queue===a&&(f[b].anim.stop(!0),f.splice(b,1));for(b=0;g>b;b++)d[b]&&d[b].finish&&d[b].finish.call(this);delete c.finish})}}),n.each(["toggle","show","hide"],function(a,b){var c=n.fn[b];n.fn[b]=function(a,d,e){return null==a||"boolean"==typeof a?c.apply(this,arguments):this.animate(Tb(b,!0),a,d,e)}}),n.each({slideDown:Tb("show"),slideUp:Tb("hide"),slideToggle:Tb("toggle"),fadeIn:{opacity:"show"},fadeOut:{opacity:"hide"},fadeToggle:{opacity:"toggle"}},function(a,b){n.fn[a]=function(a,c,d){return this.animate(b,a,c,d)}}),n.timers=[],n.fx.tick=function(){var a,b=0,c=n.timers;for(Lb=n.now();b<c.length;b++)a=c[b],a()||c[b]!==a||c.splice(b--,1);c.length||n.fx.stop(),Lb=void 0},n.fx.timer=function(a){n.timers.push(a),a()?n.fx.start():n.timers.pop()},n.fx.interval=13,n.fx.start=function(){Mb||(Mb=setInterval(n.fx.tick,n.fx.interval))},n.fx.stop=function(){clearInterval(Mb),Mb=null},n.fx.speeds={slow:600,fast:200,_default:400},n.fn.delay=function(a,b){return a=n.fx?n.fx.speeds[a]||a:a,b=b||"fx",this.queue(b,function(b,c){var d=setTimeout(b,a);c.stop=function(){clearTimeout(d)}})},function(){var a=l.createElement("input"),b=l.createElement("select"),c=b.appendChild(l.createElement("option"));a.type="checkbox",k.checkOn=""!==a.value,k.optSelected=c.selected,b.disabled=!0,k.optDisabled=!c.disabled,a=l.createElement("input"),a.value="t",a.type="radio",k.radioValue="t"===a.value}();var Yb,Zb,$b=n.expr.attrHandle;n.fn.extend({attr:function(a,b){return J(this,n.attr,a,b,arguments.length>1)},removeAttr:function(a){return this.each(function(){n.removeAttr(this,a)})}}),n.extend({attr:function(a,b,c){var d,e,f=a.nodeType;if(a&&3!==f&&8!==f&&2!==f)return typeof a.getAttribute===U?n.prop(a,b,c):(1===f&&n.isXMLDoc(a)||(b=b.toLowerCase(),d=n.attrHooks[b]||(n.expr.match.bool.test(b)?Zb:Yb)),void 0===c?d&&"get"in d&&null!==(e=d.get(a,b))?e:(e=n.find.attr(a,b),null==e?void 0:e):null!==c?d&&"set"in d&&void 0!==(e=d.set(a,c,b))?e:(a.setAttribute(b,c+""),c):void n.removeAttr(a,b))
@@ -13565,6 +16264,401 @@ function domCreate(item) {
     });
 
 });
+Polymer({
+    is: 't-colorpicker',
+
+    properties: {
+    
+    /**
+     * Name property
+    */
+    name: {
+      type: String,
+      value: '',
+      reflectToAttribute: true
+    },
+    
+      /**
+      *label:  Text
+      */
+      label: {
+        type:String,
+        reflectToAttribute:true,
+        value:'Pick a color'
+      },
+
+      /**
+       * No label float is to make the label either on the body or on the top.
+       */
+      noLabelFloat: {
+        type:Boolean,
+        reflectToAttribute:true,
+        value:false
+      },
+    
+      /**
+       * The initial color will be set with the color option. If you don't pass in a color, Spectrum will use the value attribute on the input.
+  The color parsing is based on the TinyColor plugin. This should parse any color string you throw at it.
+       */
+      color: {
+        type:String,
+        value:'#000000',
+        observer:'_hasColor'
+      },
+
+      /**
+       * Flat This means that it will always show up at full size, and be positioned as an inline-block element. Look to the left for a full sized flat picker.
+       */
+      flat: {
+        type:Boolean,
+        value:false
+      },
+
+
+      /**
+       * You can add an input to allow free form typing. The color parsing is very permissive in the allowed strings. See TinyColor for more details.
+       */
+      showInput: {
+        type:Boolean,
+        value:true  
+      },
+
+
+      /**
+       * Spectrum can show the color that was initially set when opening. This provides an easy way to click back to what was set when opened.
+       */
+      showInitial: {
+        type:Boolean,
+        value:true  
+      },
+
+
+      /**
+       * If you specify both the showInput, showInitial, and allowEmpty options, the CSS keeps things in order by wrapping the buttons to the bottom row, and shrinking the input. Note: this is all customizable via CSS.
+       */
+      allowEmpty: {
+        type:Boolean,
+        value:false
+      },
+
+
+      /**
+       * You can allow alpha transparency selection.
+       */
+      showAlpha: {
+        type:Boolean,
+        value:true
+      },
+
+
+      /**
+       * Spectrum can be automatically disabled if you pass in the disabled flag. Additionally, if the input that you initialize spectrum on is disabled, this will be the default value. Note: you cannot enable spectrum if the input is disabled (see below).
+       */
+      disabled: {
+        type:Boolean,
+        value:false,
+        reflectToAttribute:true,
+        notify:true,
+        observer:'_changeState'
+      },
+
+
+      /**
+       * If the localStorageKey option is defined, the selection will be saved in the browser's localStorage object
+       */
+      localStorageKey: {
+        type:String
+      },
+
+
+      /**
+       * Spectrum can show a palette below the colorpicker to make it convenient for users to choose from frequently or recently used colors. When the colorpicker is closed, the current color will be added to the palette if it isn't there already.
+       */
+      showPalette: {
+        type:Boolean,
+        value:false
+      },
+
+
+      /**
+       * If you'd like, spectrum can show the palettes you specify, and nothing else.
+       */
+      showPaletteOnly: {
+        type:Boolean,
+        value:false
+      },
+
+
+      /**
+       *Spectrum can show a button to toggle the colorpicker next to the palette. This way, the user can choose from a limited number of colors in the palette, but still be able to pick a color that's not in the palette.
+       */
+      togglePaletteOnly: {
+        type:Boolean,
+        value:false
+      },
+
+      /**
+       *You can have the colorpicker automatically hide after a palette color is selected.
+       */
+      hideAfterPaletteSelect: {
+        type:Boolean,
+        value:false
+      },
+
+      /**
+       * Spectrum can keep track of what has been selected by the user with the showSelectionPalette option..
+       */
+      showSelectionPalette: {
+        type:Boolean,
+        value:true
+      },
+
+
+      /**
+       * When clicking outside of the colorpicker, you can force it to fire a change event rather than having it revert the change. This is true by default.
+       */
+      clickoutFiresChange: {
+        type:Boolean,
+        value:true
+      },
+
+
+      /**
+       * You can set the button's text using cancelText and chooseText properties.
+       */
+      cancelText: {
+        type:String,
+        value: "cancelText"
+      },
+
+
+      /**
+       * You can set the button's text using cancelText and chooseText properties.
+       */
+      appendTo: {
+        type:String,
+        value: "#colorContainer"
+      },
+
+      /**
+       * You can set the button's text using cancelText and chooseText properties.
+       */
+      chooseText: {
+        type:String,
+        value: "chooseText"
+      },
+
+
+      /**
+       * You can also change the text on the Toggle Button with the options togglePaletteMoreText (default is "more") .
+       */
+      togglePaletteMoreText: {
+        type:String,
+        value:'more'
+      },
+
+
+      /**
+       * You can also change the text on the Toggle Button with the options togglePaletteLessText (default is "less").
+       */
+      togglePaletteLessText: {
+        type:String,
+        value:'less'
+      },
+
+
+      /**
+       * You can add an additional class name to the just the container element using the containerClassName property.
+       */
+      containerClassName: {
+        type:String
+      },
+
+
+      /**
+       * You can add an additional class name to just the replacer element using the replacerClassName property.
+       */
+      replacerClassName: {
+        type:String
+      },
+
+
+      /**
+       * You can set the format that is displayed in the text box. This will also change the format that is displayed in the titles from the palette swatches.
+       "hex","hex3","hsl","rgb","name", and none 
+       */
+      preferredFormat: {
+        type:String,
+        value:"hex"
+      },
+
+
+      /**
+       * This is how many elements are allowed in the selectionPallete at once.
+  Elements will be removed from the palette in first in - first out order if this limit is reached.
+       */
+      maxSelectionSize:{
+        type:Number
+      },
+
+
+      /**
+       * This attribute will put the format of the date selected in the place holder.
+       */
+      palette:{
+        type:Array
+      },
+
+
+      /**
+       * The default values inside of the selection palette. Make sure that showSelectionPalette and showPalette are both enabled.
+       */
+      selectionPalette: {
+        type:Array
+      },
+
+      /**
+       * The default values inside of the selection palette. Make sure that showSelectionPalette and showPalette are both enabled.
+       */
+      value: {
+        type:String,
+        value:"",
+        reflectToAttribute:true,
+        notify:true
+      }
+
+    },
+
+    attached:function(){
+      this._initiate();
+    },
+
+    ready:function(){
+      this._initiate();
+    },
+
+    _hasColor:function(){
+      if(this.color.length>0){
+        this.value = this.color;
+      }
+      this._initiate();
+    },
+    //to initiate the color picker...    
+    _initiate: function(){
+
+      var component = this;
+
+      var pickerSettings={
+
+          color: this.color,
+
+          flat: this.flat,
+
+          showInput: this.showInput,
+
+          hideAfterPaletteSelect: this.hideAfterPaletteSelect,
+
+          showInitial: this.showInitial,
+
+          allowEmpty: this.allowEmpty,
+
+          showAlpha: this.showAlpha,
+
+          disabled: this.disabled,
+
+          localStorageKey: this.localStorageKey,
+
+          showPalette: this.showPalette,
+
+          showPaletteOnly: this.showPaletteOnly,
+
+          togglePaletteOnly: this.togglePaletteOnly,
+
+          showSelectionPalette: this.showSelectionPalette,
+
+          clickoutFiresChange: this.clickoutFiresChange,
+
+          appendTo: this.appendTo,
+
+          togglePaletteMoreText: this.togglePaletteMoreText,
+
+          togglePaletteLessText: this.togglePaletteLessText,
+
+          containerClassName: this.containerClassName,
+
+          replacerClassName: this.replacerClassName,
+
+          preferredFormat: this.preferredFormat,
+
+          maxSelectionSize: this.maxSelectionSize,
+
+          palette: this.palette,
+
+          selectionPalette: this.selectionPalette,
+
+          change: function(color) {
+              //this.fire('color-selected');
+              
+          },
+
+          move: function(color) {
+              //this.fire('color-changed');
+          },
+
+          hide: function(color) {
+            component.value = $(this).val();
+            component.fire('color-selected');
+            /*if(component.noLabelFloat && component.value.length>0){
+              $('#label').hide();
+            }*/
+          }
+          
+      };
+      //console.log($(this.$.color))
+      $(this.$.color).spectrum(pickerSettings)
+      //alert(1);
+      //this._instance = this._input.spectrum(pickerSettings);
+      //this.picker = this._input.spectrum('picker');
+    },
+
+    show: function(){
+      $(this.$.color).spectrum('show');
+    },
+
+    /*
+    * Private method to clear the value
+    */
+    hide: function(){
+      $(this.$.color).spectrum('hide');
+    },
+
+    /*
+    * Public method to toggle the picker
+    */
+    toggle: function(){
+      $(this.$.color).spectrum('toggle');
+    },
+
+    /*
+    * Private method to toggle the state of the picker
+    */
+    _changeState: function(){
+      if(this.disabled){
+        $(this.$.color).spectrum('disable');
+      }else{
+        $(this.$.color).spectrum('enable');
+      }
+    },
+
+    /**
+     * Function to validate if the date is selected
+     */
+     
+    validate:function(){
+      return true;
+    }
+
+  });
 /*!
  * pickadate.js v3.5.6, 2015/04/20
  * By Amsul, http://amsul.ca
@@ -16076,6 +19170,296 @@ Picker.extend( 'pickadate', DatePicker )
 
 
 }));
+Polymer({
+    is: 't-calendar',
+
+    properties: {
+
+        
+        /**
+         * Check is the component is required
+         */
+         required:Boolean,
+        
+        /**
+         * This attribute will return the selected date
+         */
+        selectedDate: {
+            type: String,
+            value: '',
+            reflectToAttribute: true,
+            notify: true,
+            observer: '_floatedLabel'
+        },
+
+        /**
+         * errorMessage is to put the error msg
+         */
+        errorMessage: {
+            type: String,
+            reflectToAttribute: true,
+            value: 'Please select a date!'
+        },
+
+        /**
+         * This attribute will put the format of the date selected in the place holder.
+         *@default: dddd, dd mmm, yyyy
+         */
+        format: {
+            type: String,
+            value: 'dddd, dd mmm, yyyy',
+            reflectToAttribute: true,
+            notify: true
+        },
+
+
+        /**
+         * This attribute will put the submit format of the date selected in the place holder.
+         *@default: yyyy,mm,dd
+         */
+        submitFormat: {
+            type: String,
+            value: 'yyyy,mm,dd',
+            notify: true
+        },
+
+        /**
+         * Pass the array of dates to be disabled
+         *@default: null
+         */
+        disabledDates: {
+            type: Array,
+            value: function() {
+                return null;
+            },
+            notify: true,
+            observer: '_setDisableDates'
+        },
+
+      
+        /**
+         * picker object will help you pass further methods
+         */
+        picker: Object,
+
+        _input: Object,
+
+        /**
+         * This is an object to put further methods on it.
+         */
+        _instance: Object,
+
+        /**
+         * This is an object to put further methods on it.
+         */
+        isDob: {
+            type: Boolean,
+            value: false,
+            reflectToAttribute: true,
+            observer: '_manageRange'
+        },
+
+        min: {
+            type: Object,
+            value: function() {
+                return null;
+            },
+            notify: true
+
+        },
+
+        max: {
+            type: Object,
+            value: function() {
+                return null;
+            },
+            notify: true
+        },
+
+        _date: {
+            type: Object,
+            notify: true,
+            observer: '_dateFromObject'
+        },
+
+        /**
+         * Set to true to disable the floating label. The label disappears when the input value is
+         * not null.
+         */
+        noLabelFloat: {
+            type: Boolean,
+            value: false
+        },
+
+        /**
+         * True if the input is invalid. This property is set automatically when the input value
+         * changes if auto-validating, or when the `iron-input-valid` event is heard from a child.
+         */
+        invalid: {
+            type: Boolean,
+            reflectToAttribute:true,
+            value: false
+        },
+
+        /**
+         * The label for this input. If you're using PaperInputBehavior to
+         * implement your own paper-input-like element, bind this to
+         * `<label>`'s content and `hidden` property, e.g.
+         * `<label hidden$="[[!label]]">[[label]]</label>` in your `template`
+         */
+        label: {
+            type: String,
+            value: 'Select Date'
+        },
+    },
+
+    attached: function() {
+        this._initiate();
+        this._changeMinMax();
+        this.$.inputContainer.fireBlur = false;
+    },
+
+    _getMinMax: function() {
+        var range = {};
+        range.min = (this.min === null) ? true : this.min;
+        range.max = (this.max === null) ? false : this.max;
+
+        return range;
+    },
+
+    _dateFromObject: function() {
+        if (this.picker !== undefined) {
+            this.picker.set('select', this._date);
+            this.selectedDate = this.picker.get('select', this.format);
+        }
+    },
+
+    _changeMinMax: function() {
+        if (!this.min) {
+            this.min = new Date();
+            this.min.setFullYear(this.min.getFullYear() - 120);
+            if (this.max !== null) this.picker.set('max', this.max);
+        } else {
+            this.picker.set('min', this.min);
+            if (this.max !== null) this.picker.set('max', this.max);
+        }
+    },
+
+
+    //to initiate the date picker...  
+
+    _initiate: function() {
+        this._input = $(this.$.input);
+        var component = this;
+        // component.disabledDates=[[2015,8,12]];
+
+        var pickerSettings = {
+            component: this,
+            labelMonthNext: 'Go to the next month',
+            labelMonthPrev: 'Go to the previous month',
+            labelMonthSelect: 'Pick a month from the dropdown',
+            labelYearSelect: 'Pick a year from the dropdown',
+            weekdaysShort: ['S', 'M', 'T', 'W', 'T', 'F', 'S'],
+            today: "",
+            clear: "",
+            close: "",
+            //selectMonths: true,
+            //selectYears: true,
+            format: component.format,
+            closeOnSelect: true,
+            selectMonths: component.isDob,
+            onOpen: function() {
+                component.opened  = true;
+            },
+            onClose: function() {
+                component.opened = false;
+                component.selectedDate = component.$.input.value;
+                $(document.activeElement).blur();
+                component.validate();
+                /*;
+                if (component._input.val() !== "") {
+                    component._input.addClass('yes-value').siblings('i').addClass('active');
+                } else {
+                    component._input.removeClass('yes-value').siblings('i').removeClass('active');
+                }*/
+            }
+        };
+
+        var range = this._getMinMax();
+        pickerSettings.selectYears = this.isDob ? 110 : false;
+        pickerSettings.min = range.min;
+        pickerSettings.max = range.max;
+        this._instance = this._input.pickadate(pickerSettings);
+        this.picker = this._input.pickadate('picker');
+    },
+
+    _setDisableDates: function() {
+        if (this.picker !== undefined) this.picker.set('disable', this.disabledDates);
+    },
+
+    _manageRange: function() {
+        var currentDate = new Date();
+        if (this.isDob) {
+
+            this.max = new Date();
+            this._initiate();
+        }
+    },
+
+    /*
+     * Private method to clear the value
+     */
+    _clear: function() {
+        this.picker.clear();
+        this.selectedDate = "";
+        this.$.input.value = "";
+    },
+
+
+    /*
+     * Private method to clear the value
+     */
+    _floatedLabel: function(newValue, oldValue) {
+        /*if (this.selectedDate.length > 0) {
+            this.classList.add('label-is-floating');
+        } else {
+            this.classList.remove('label-is-floating');
+        }
+*/
+        //component load condition
+        //patch ATOM-501 added picker as a condition
+        if (!this.picker) {
+            return;
+        }
+        if (!newValue && !oldValue) {
+            return;
+        }
+        //break loop condition 
+        if (newValue && oldValue && newValue == oldValue)
+            return;
+
+        this.picker.set('select', newValue, {
+            format: this.format
+        });
+
+    },
+    /**
+     * Function to validate if the date is selected
+     */
+    validate: function() {
+        if (this.required) {
+            if (this.selectedDate && this.selectedDate.length > 0) {
+                $(this).find('t-input-container').removeClass('invalid-input');
+                this.invalid = false;
+                return true;
+            }
+                $(this).find('t-input-container').addClass('invalid-input');
+                this.invalid = true;
+            return false;
+        }
+    }
+
+});
 /** @polymerBehavior Polymer.PaperButtonBehavior */
   Polymer.PaperButtonBehaviorImpl = {
 
@@ -16161,6 +19545,397 @@ Picker.extend( 'pickadate', DatePicker )
     Polymer.PaperRippleBehavior,
     Polymer.PaperButtonBehaviorImpl
   ];
+Polymer({
+    is: 'paper-button',
+
+    behaviors: [
+      Polymer.PaperButtonBehavior
+    ],
+
+    properties: {
+      /**
+       * If true, the button should be styled with a shadow.
+       */
+      raised: {
+        type: Boolean,
+        reflectToAttribute: true,
+        value: false,
+        observer: '_calculateElevation'
+      }
+    },
+
+    _calculateElevation: function() {
+      if (!this.raised) {
+        this._setElevation(0);
+      } else {
+        Polymer.PaperButtonBehaviorImpl._calculateElevation.apply(this);
+      }
+    }
+    /**
+
+    Fired when the animation finishes.
+    This is useful if you want to wait until
+    the ripple animation finishes to perform some action.
+
+    @event transitionend
+    @param {{node: Object}} detail Contains the animated node.
+    */
+  });
+Polymer({
+      is: 'paper-icon-button',
+
+      hostAttributes: {
+        role: 'button',
+        tabindex: '0'
+      },
+
+      behaviors: [
+        Polymer.PaperInkyFocusBehavior
+      ],
+
+      properties: {
+        /**
+         * The URL of an image for the icon. If the src property is specified,
+         * the icon property should not be.
+         */
+        src: {
+          type: String
+        },
+
+        /**
+         * Specifies the icon name or index in the set of icons available in
+         * the icon's icon set. If the icon property is specified,
+         * the src property should not be.
+         */
+        icon: {
+          type: String
+        },
+
+        /**
+         * Specifies the alternate text for the button, for accessibility.
+         */
+        alt: {
+          type: String,
+          observer: "_altChanged"
+        }
+      },
+
+      _altChanged: function(newValue, oldValue) {
+        var label = this.getAttribute('aria-label');
+
+        // Don't stomp over a user-set aria-label.
+        if (!label || oldValue == label) {
+          this.setAttribute('aria-label', newValue);
+        }
+      }
+    });
+Polymer({
+
+    is: 't-button',
+
+    properties: {
+
+      /**
+       * If true, the button will be a paper icon button
+       */
+      onlyIcon:{
+        type: Boolean,
+        value:false,
+        reflectToAttribute:true
+      },
+
+      /**
+       * To pass the src of a custom image only for icon btn
+       */
+      icoSrc:{
+        type: String
+      },
+
+      /**
+       * Button label
+       */
+      label:{
+        type: String,
+        value:'',
+        reflectToAttribute : true
+      },
+
+      /**
+       * To check if theres an icon
+       */
+      hasIcon:{
+        type: Boolean,
+        value:false,
+        reflectToAttribute:true
+      },
+
+      /**
+       * Ink effect on button
+       */
+      noink:{
+        type: Boolean,
+        value:false,
+        reflectToAttribute:true
+      },
+
+      /**
+       * If true, the button will toggle the active attribute.
+       */
+      toggles:{
+        type: Boolean,
+        reflectToAttribute:true,
+        value:false
+      },
+      
+      /**
+       * If true, the button should be styled with a shadow.
+       */
+      raised: {
+        type: Boolean,
+        reflectToAttribute: true,
+        value: false
+      },
+
+      /**
+       * If true, the button will be disabled.
+       */
+      disabled: {
+        type: Boolean,
+        reflectToAttribute: true,
+        value: false
+      },
+
+      /**
+       * The value of icon
+       */
+      ico :{
+        type: String,
+        reflectToAttribute:true,
+        notify:true,
+        observer:'_checkIcon'
+      },
+
+      /**
+       * If true, the icon will appear in the left.
+       */
+      iconLeft:{
+        type: Boolean,
+        reflectToAttribute: true,
+        value: false
+      }
+
+    },
+
+    _checkIcon: function(ico){
+      if(this.ico == '')
+        this.removeAttribute('ico');
+      this.hasIcon = this.hasAttribute('ico');
+    }
+
+  });
+Polymer({
+
+    is: 't-stepper',
+
+    properties: {
+
+        /**
+       * Stepper label
+       */
+        singularLabel:{
+          type: String,
+          value:'',
+          reflectToAttribute : true,
+          observer:'_setLabel'
+        },
+
+        _label:{
+          type: String,
+          value:''
+        },
+
+        pluralLabel:{
+          type: String,
+          value:'',
+          reflectToAttribute : true,
+          observer:'_setLabel'
+        },
+
+        secondaryLabel:{
+          type: String,
+          value:'',
+          reflectToAttribute : true,
+          observer:'_setLabel'
+        },
+
+        min:{
+          type:Number,
+          value:0,
+          reflectToAttribute : true,
+          observer:'getMin'
+        },
+
+        max:{
+          type:Number,
+          value:1,
+          reflectToAttribute : true,
+          notify:true,
+          observer:'_maxChanged'
+        },
+
+        count:{
+          type:Number,
+          value:'',
+          notify:true,
+          observer:'_setLabel'
+        },
+        /**
+       * The value of icon
+       */
+        ico :{
+          type: String,
+          reflectToAttribute:true,
+          notify:true,
+          observer:'_checkIcon'
+        },
+
+        /**
+       * To check if it is styled
+       */
+        styled:{
+          type: Boolean,
+          value:false,
+          reflectToAttribute:true
+        },
+
+        /**
+       * To check if theres an icon
+       */
+        hasIcon:{
+          type: Boolean,
+          value:false,
+          reflectToAttribute:true
+        },
+
+        /**
+       * To check if theres an icon
+       */
+        disableMinus:{
+          type: Boolean,
+          value:false,
+          reflectToAttribute:true,
+          computed:'checkDisableMinus(count,min)'
+        },
+
+        /**
+       * To check if plus
+       */
+        disablePlus:{
+          type: Boolean,
+          value:false,
+          reflectToAttribute:true,
+          computed:'checkDisableAdd(count,max)'
+        }
+
+
+    },
+
+    attached: function(){
+      this._setLabel();
+    },
+
+    getMin:function(min){
+      this.count = this.min;
+    },
+
+    _checkIcon: function(ico){
+      if(this.ico == '')
+        this.removeAttribute('ico');
+      this.hasIcon = this.hasAttribute('ico');
+    },
+
+    addTap:function(){
+      if(this.count < this.max) {
+        this.count++;
+      }    
+    },
+
+    minusTap:function(){
+      if(this.count > this.min) {
+        this.count--;
+      }
+    },
+
+    _setLabel: function(){
+        switch(this.count) {
+            case 0:
+                this._label = this.pluralLabel;
+                break;
+            case 1:
+                this._label =  this.singularLabel;
+                break;
+            default :
+                this._label = this.pluralLabel;
+        }
+    },
+
+    checkDisableMinus:function(count,min){
+      return count == min;
+    },
+
+    checkDisableAdd:function(count,max){
+      return count == max;
+    },
+
+    _maxChanged: function(){
+      if(this.max < this.count)
+        this.count = this.min;
+    },
+
+    validate:function(){
+      return true;
+    }
+}) ;
+Polymer({
+
+    is: 't-notify',
+
+    properties: {
+
+        active:{
+            type: Boolean,
+            reflectToAttribute: true,
+            value: false
+        },
+
+        type:{
+            type: String,
+            reflectToAttribute: true,
+            value: 'error'
+        },
+
+        message: {
+            type: String,
+            value: ''
+        }
+        /*,
+        data: {
+            type: Array,
+            value: function() {
+                return [];
+            },
+            notify: true,
+            reflectToAttribute: true,
+            observer:'_checkdata'
+        },
+        onlyHead:{
+            type:Boolean,
+            value:false,
+            notify: true
+        }*/
+    }
+
+});
 function MakePromise (asap) {
   function Promise(fn) {
 		if (typeof this !== 'object' || typeof fn !== 'function') throw new TypeError();
@@ -16906,6 +20681,618 @@ Polymer({
     Polymer.IronControlState,
     Polymer.PaperItemBehaviorImpl
   ];
+Polymer({
+      is: 'paper-item',
+
+      behaviors: [
+        Polymer.PaperItemBehavior
+      ]
+    });
+Polymer({
+
+    is: 't-form',
+
+    properties: {
+
+        /**
+         * heading of the form.
+         */
+        name: {
+            type: String,
+            value: 'untitled-form',
+            reflectToAttribute: true
+        },
+
+        /**
+         * NodeList of all fields present in the form.
+         */
+        fields: {
+            type: Array,
+            value: function() {
+                return [];
+            },
+            notify: true,
+
+        },
+
+        /**
+         * Response object of the form.
+         */
+        response: {
+            type: Object,
+            value: function() {
+                return {};
+            }
+        },
+
+        /**
+         * heading of the form.
+         */
+        heading: {
+            type: String,
+            value: 'Untitled Form',
+            reflectToAttribute: true
+        },
+
+        actionButton: {
+            type: String,
+            value: 'Left',
+            notify: true,
+            reflectToAttribute: true,
+            observer: '_positionButton'
+        },
+
+        submitButtonLabel: {
+            type: String,
+            value: 'Submit',
+            reflectToAttribute: true
+        },
+
+        secondaryActionLabel: {
+            type: String,
+            value: 'Cancel',
+            reflectToAttribute: true
+        },
+
+        labelPosition: {
+            type: String,
+            value: 'Top',
+            reflectToAttribute: true,
+            notify: true,
+            observer: '_labelTypeChanged'
+        },
+
+        _fieldsNotPresent: {
+            type: Boolean,
+            value: true,
+            computed: '_fieldsPresent(fields)'
+        },
+
+        errorMessage: {
+            type: String,
+            reflectToAttribute: true
+        },
+
+        errorBlock: {
+            type: Boolean,
+            value: false,
+            reflectToAttribute: true
+        },
+
+        showLoader:{
+            type:Boolean,
+            value:false,
+            reflectToAttribute:true
+        }
+    },
+
+    ready: function() {
+        var component = this;
+        this.addEventListener('tab-next', function(event) {
+            var next =event.target.tabIndex + 1;
+            component.fields[next].focus();
+        });
+    },
+
+    attached: function(){
+        this.setFields();
+    },
+
+    _fieldsPresent: function() {
+        return this.fields == undefined || this.fields.length == 0;
+    },
+
+    _setResponse: function(field) {
+        var fieldName = field.getAttribute("name");
+        switch (field.is) {
+
+            case "t-checkbox-group":
+                this.response[fieldName] = field.selectedValues;
+                break;
+
+            case "t-checkbox":
+                this.response[fieldName] = field.checked;
+                break;
+
+            case "t-radio-group":
+                this.response[fieldName] = field.selectedItem;
+                break;
+
+            case "t-autosuggest":
+                this.response[fieldName] = field.selectedItem;
+                break;
+
+            case "t-calendar":
+                this.response[fieldName] = field.selectedDate;
+                break;
+
+            case "t-colorpicker":
+                this.response[fieldName] = field.value;
+                break;
+
+            case "t-input":
+                this.response[fieldName] = field.value;
+                break;
+
+            case "t-stepper":
+                this.response[fieldName] = field.count;
+                break;
+
+            case "t-email-input":
+                this.response[fieldName] = field.value;
+                break;
+
+            case "t-phone-input":
+                this.response[fieldName] = field.formattedValue;
+                break;
+
+            default:
+                console.log('Add  switch case for ' + field.is + ' in t-form.html in t-components.')
+
+        }
+    },
+
+    _validate: function(field) {
+        var isValid = true;
+        /* var notifyEle = document.querySelector('#notify');*/
+        /*var data = [];*/
+        this.fields.forEach(function(field) {
+            if (field.validate() != undefined) {
+                isValid = isValid && field.validate();
+                /*if(!field.validate()){
+                    data.push(field.errorMessage);
+                }*/
+            }
+        });
+        /*notifyEle.active = !isValid;*/
+        /*notifyEle.data = data;*/
+        return isValid;
+    },
+
+    setFields: function() {
+        var content = Polymer.dom(this.$.fields).getDistributedNodes();
+        var component = this;
+        component.fields = [];
+        content.forEach(function(section) {
+            component._pushFields(section.querySelectorAll("[name]"));
+        });
+    },
+
+    _pushFields: function(components) {
+        var fields = [];
+        if (components.length > 0) {
+            for(var index=0; index< components.length ; index++)
+            {
+                components[index].setAttribute('tabIndex', index);
+                if(components[index].is != 't-radio-button')
+                    fields.push(components[index]);
+            }
+            this.fields = this.fields.concat(fields);
+        }
+    },
+
+    _labelTypeChanged: function() {
+        this.setFields(Polymer.dom(this.$.fields).getDistributedNodes());
+        switch (this.labelPosition) {
+            case 'Left':
+
+                break;
+
+            case 'Right':
+                break;
+
+            case 'Top':
+                this.fields.forEach(function(field) {
+                    field.noLabelFloat = false;
+                });
+                break;
+
+            case 'Inline':
+                this.fields.forEach(function(field) {
+                    field.noLabelFloat = true;
+                });
+                break;
+        }
+    },
+
+    _positionButton: function() {
+        var classes = "layout horizontal ";
+        switch (this.actionButton) {
+            case 'Full':
+                this.$.submit.classList.add('flex');
+                break;
+
+            case 'Right':
+                this.$.submit.classList.remove('flex');
+                this.$.actionContainer.classList.remove('justified');
+                this.$.actionContainer.classList.add('end-justified');
+                break;
+
+            case 'Left':
+                this.$.submit.classList.remove('flex');
+                this.$.actionContainer.classList.add('justified');
+                break;
+            
+            case 'Center':
+                this.$.submit.classList.remove('flex');
+                this.$.actionContainer.classList.add('center-justified');
+                break;
+        }
+        return classes;
+    },
+
+    submit: function() {
+        var component = this;
+        this.setFields(Polymer.dom(component.$.fields).getDistributedNodes());
+        if (component._validate()) {
+            component.fields.forEach(function(field) {
+                component._setResponse(field);
+            });
+
+            component.fire('on-form-submit', component.response);
+        }
+    }
+});
+Polymer({
+    is: 't-air-search',
+    properties: {
+
+        /**
+         * The location to search from.
+         * Must be a value picked from suggested locations?.
+         */
+        DepartureAirport: String,
+
+        /**
+         * The location of arrival.
+         * Must be a value picked from suggested locations?.
+         */
+        ArrivalAirport: {
+            type:String,
+            observer:'_validateDestinations'
+        },
+        /**
+         * The date of departure.
+         */
+        DepartureDate: {
+            type: String,
+            value: '',
+            notify: true,
+            observer: '_travelDateChanged'
+        },
+
+        /**
+         * The date of returning back to the departure location
+         * __if__ the type of trip is _Round Trip_
+         */
+        ArrivalDate: {
+            type: String,
+            value: '',
+            notify: true,
+            observer: '_returnDateChanged'
+        },
+
+        /**
+         * The value of adults selected.
+         */
+        adult: {
+            type: Number,
+            value: 1
+        },
+
+        /**
+         * The value of children selected.
+         */
+        child: {
+            type: Number,
+            value: 0
+        },
+
+        /**
+         * The value of infants selected.
+         */
+        infant: {
+            type: Number,
+            value: 0
+        },
+
+        /**
+         * The maximum number of children allowed for travel
+         */
+        _maxChildren: {
+            type: Number,
+            notify: true,
+            value: 6
+        },
+
+        /**
+         * The maximum number of infants allowed for travel
+         */
+        _maxInfants: {
+            type: Number,
+            notify: true,
+            value: 1
+        },
+
+        /**
+         * The api url that returns suggestions (auto suggest) shown in
+         * departure and arrival airport fields
+         */
+        suggestionUrl: String,
+
+        /**
+         * The error message that will be shown to the user
+         */
+        error: {
+            type: String,
+            value: ''
+        },
+
+        /**
+         * The type of trip, possible values are _Round Trip_ and _One Way_
+         */
+        itineraryType: {
+            type: String,
+            value: 'RoundTrip',
+            reflectToAttribute: true,
+            notify: true,
+            observer: '_tripTypeChanged'
+        },
+
+        /**
+         * Controls how the search happens, if the value of this is set to
+         * 'event' then it raises a event which can be handled by the consumer
+         * of this component to do search. In another case if the value is
+         * set to `url` then search will be done by opening the deep link
+         * url.
+         */
+        searchType: {
+            type: String,
+            value: 'event',
+            reflectToAttribute: true
+        },
+
+        /**
+         * Check if the type of trip is _Round Trip_
+         */
+        _isRoundTrip: {
+            type: Boolean,
+            computed: '_tripTypeChanged(itineraryType)'
+        },
+
+        /**
+         * The url that will used for searching if `searchType` is set to `url`.
+         * The initial * value should be set to the search api url, this initial
+         * value be used to construct the deep link url by appending
+         * query parameters to it.
+         */
+        deeplinkUrl: {
+            type: String,
+            value: '',
+            reflectToAttribute: true
+        },
+
+        /**
+         * The query parameter for autosuggest to work. This is token to pass with the request for * autosuggest.
+         */
+        queryParams: {
+            type: String,
+            value: ""
+        },
+
+        /**
+         * The type of cabin, example values are _Economy_ and _Business_
+         */
+        cabinType: {
+            type: String,
+            value: "Economy"
+        },
+
+    },
+
+    attached: function() {
+        var component = this;
+        this.async(function() {
+            // access sibling or parent elements here
+            var startDate = new Date();
+            startDate.setDate(startDate.getDate() + 3);
+            this.$.departureDate.picker.set('min', startDate);
+        });
+        this.addEventListener('on-form-submit', function(event) {
+            component.search(event.detail);
+        });
+    },
+
+    _tripTypeChanged: function (tripType) {
+        if (this.itineraryType !== undefined) {
+            if (this.itineraryType === 'RoundTrip') {
+                this._travelDateChanged();
+                return false;
+            }
+            else {
+                if(this.$.departureDate.picker !== undefined)
+                    this.$.departureDate.picker.set('max', false);
+            }
+        }
+        return true;
+    },
+
+    _travelDateChanged: function() {
+        if (this.itineraryType !== undefined) {
+            if (this.itineraryType === 'RoundTrip') {
+                if (this.DepartureDate != '') {
+                    this.$.arrivalDate.picker.set('min', new Date(this.DepartureDate));
+                }
+            } else {
+
+                this.$.departureDate.picker.set('max', false);
+            }
+        }
+    },
+
+    _returnDateChanged: function() {
+        if (this.itineraryType === 'RoundTrip') {
+            if (this.ArrivalDate != '') {
+                this.$.departureDate.picker.set('max', new Date(this.ArrivalDate));
+            }
+        }
+    },
+
+    _getDateArray: function(dateString) {
+        var date = new Date(dateString);
+        return [date.getFullYear, date.getMonth(), date.getDate()];
+    },
+
+    _getDeeplinkUrl: function() {
+
+        var deeplink = this.deeplinkUrl;
+
+        if (this.itineraryType == 'RoundTrip')
+            deeplink = deeplink + "triptype=RoundTrip&";
+        else
+            deeplink = deeplink + "triptype=OneWay&";
+
+        deeplink = deeplink + "adults=" + this.adults + "&children=" + this.children + "&seniors=0&infants=" + this.infant + "&nonstoponly=false&cabinclass=NoPreference&deploc1=" + this.$.DepartureAirport.selectedItem.code + "&arrloc1=" + this.$.ArrivalAirport.selectedItem.code + "&depdate1=" + this.DepartureDate + "&inda1=false&inaa1=false";
+
+        if (this.itineraryType == 'RoundTrip')
+            deeplink = deeplink + "&deploc2=" + this.$.ArrivalAirport.selectedItem.code + "&arrloc2=" + this.$.DepartureAirport.selectedItem.code + "&depdate2=" + this.ArrivalDate + "&inda2=false&inaa2=false";
+
+        deeplink = deeplink + "&dateFormat=MM/dd/yyyy&culture=en-US&currency=USD&cid=mystiquedemo&update=true";
+
+        return deeplink;
+    },
+
+    _validateDestinations: function(event) {
+        if (this.$.DepartureAirport.selectedItem != null && this.$.ArrivalAirport.selectedItem != null) {
+            if (this.$.DepartureAirport.selectedItem.code == this.$.ArrivalAirport.selectedItem.code) {
+                this.$.ArrivalAirport.isInvalid = true;
+                this.$.ArrivalAirport.validate();
+            }
+        }
+    },
+
+    changeMaxCount: function() {
+        this.$.adult.max = 9 - this.$.child.count;
+        this.$.child.max = 9 - this.$.adult.count;
+        this.$.infant.max = this.$.adult.count;
+    },
+
+
+    /**
+     * The method to fire the search function
+     */
+    search: function(searchParams) {
+        if (this.searchType == 'url') {
+            var win = window.open(this._getDeeplinkUrl(), '_blank');
+            win.focus();
+        } else {
+            var btnSubmit = this.querySelector("#submit");
+            btnSubmit.disabled = true;
+            btnSubmit.label = "Searching Flights...";
+            this.fire('on-search', searchParams);
+        }
+    }
+});
+Polymer({
+
+    is: 't-search-initiator',
+
+    properties:{
+        
+        url:String,
+
+        tokenResponse:Object
+    },
+
+    attached: function(){
+      var searchInitiator= this;
+      document.addEventListener('on-search', function(event){
+        searchInitiator._searchCallMade(event);
+      });
+    },
+
+    _searchCallMade: function(event){
+       var searchQuery = event.detail; 
+            var query = {
+            "Passengers": [
+                {
+                    "quantity": searchQuery.adult,
+                    "type": "Adult",
+                    "ages": []
+                },
+                {
+                    "quantity": searchQuery.child,
+                    "type": "Child",
+                    "ages": []
+                },
+                {
+                    "quantity": 0,
+                    "type": "Senior",
+                    "ages": []
+                },
+                {
+                    "quantity": searchQuery.infant,
+                    "type": "Infant",
+                    "ages": []
+                }
+            ],
+            "legs": [
+                {
+                    "departureLocation": searchQuery.DepartureAirport,
+                    "includeNearByAirportsForDeparture": true,
+                    "arrivalLocation": searchQuery.ArrivalAirport,
+                    "includeNearByAirportsForArrival": true,
+                    "travelDate": {
+                        "date": searchQuery.departureDate
+                    }
+                }
+            ],
+            "productType": "Flight",
+            "preferences": { "nonStopOnly": false, "cabinType": searchQuery.cabinType }
+        };
+
+        if (searchQuery.itineraryType === 'RoundTrip') {
+            query.legs[1] =
+            {
+                "departureLocation": searchQuery.ArrivalAirport,
+                "includeNearByAirportsForDeparture": true,
+                "arrivalLocation": searchQuery.DepartureAirport,
+                "includeNearByAirportsForArrival": true,
+                "travelDate": {
+                    "date": searchQuery.arrivalDate
+                }
+
+            };
+        }
+        this.$.searchCall.body = JSON.stringify(query);
+        this.$.searchCall.generateRequest();
+    },
+
+    _callback: function(event){
+      this.fire('initiation', event.detail.response)  ;
+    }
+ 
+  });
 /*! nouislider - 8.0.2 - 2015-07-06 13:22:09 */
 
 /*jslint browser: true */
@@ -18535,4776 +22922,6 @@ function closure ( target, options ){
 	};
 
 }));
-/**
-   * `IronResizableBehavior` is a behavior that can be used in Polymer elements to
-   * coordinate the flow of resize events between "resizers" (elements that control the
-   * size or hidden state of their children) and "resizables" (elements that need to be
-   * notified when they are resized or un-hidden by their parents in order to take
-   * action on their new measurements).
-   * 
-   * Elements that perform measurement should add the `IronResizableBehavior` behavior to
-   * their element definition and listen for the `iron-resize` event on themselves.
-   * This event will be fired when they become showing after having been hidden,
-   * when they are resized explicitly by another resizable, or when the window has been
-   * resized.
-   * 
-   * Note, the `iron-resize` event is non-bubbling.
-   *
-   * @polymerBehavior Polymer.IronResizableBehavior
-   * @demo demo/index.html
-   **/
-  Polymer.IronResizableBehavior = {
-    properties: {
-      /**
-       * The closest ancestor element that implements `IronResizableBehavior`.
-       */
-      _parentResizable: {
-        type: Object,
-        observer: '_parentResizableChanged'
-      },
-
-      /**
-       * True if this element is currently notifying its descedant elements of
-       * resize.
-       */
-      _notifyingDescendant: {
-        type: Boolean,
-        value: false
-      }
-    },
-
-    listeners: {
-      'iron-request-resize-notifications': '_onIronRequestResizeNotifications'
-    },
-
-    created: function() {
-      // We don't really need property effects on these, and also we want them
-      // to be created before the `_parentResizable` observer fires:
-      this._interestedResizables = [];
-      this._boundNotifyResize = this.notifyResize.bind(this);
-    },
-
-    attached: function() {
-      this.fire('iron-request-resize-notifications', null, {
-        node: this,
-        bubbles: true,
-        cancelable: true
-      });
-
-      if (!this._parentResizable) {
-        window.addEventListener('resize', this._boundNotifyResize);
-        this.notifyResize();
-      }
-    },
-
-    detached: function() {
-      if (this._parentResizable) {
-        this._parentResizable.stopResizeNotificationsFor(this);
-      } else {
-        window.removeEventListener('resize', this._boundNotifyResize);
-      }
-
-      this._parentResizable = null;
-    },
-
-    /**
-     * Can be called to manually notify a resizable and its descendant
-     * resizables of a resize change.
-     */
-    notifyResize: function() {
-      if (!this.isAttached) {
-        return;
-      }
-
-      this._interestedResizables.forEach(function(resizable) {
-        if (this.resizerShouldNotify(resizable)) {
-          this._notifyDescendant(resizable);
-        }
-      }, this);
-
-      this._fireResize();
-    },
-
-    /**
-     * Used to assign the closest resizable ancestor to this resizable
-     * if the ancestor detects a request for notifications.
-     */
-    assignParentResizable: function(parentResizable) {
-      this._parentResizable = parentResizable;
-    },
-
-    /**
-     * Used to remove a resizable descendant from the list of descendants
-     * that should be notified of a resize change.
-     */
-    stopResizeNotificationsFor: function(target) {
-      var index = this._interestedResizables.indexOf(target);
-
-      if (index > -1) {
-        this._interestedResizables.splice(index, 1);
-        this.unlisten(target, 'iron-resize', '_onDescendantIronResize');
-      }
-    },
-
-    /**
-     * This method can be overridden to filter nested elements that should or
-     * should not be notified by the current element. Return true if an element
-     * should be notified, or false if it should not be notified.
-     *
-     * @param {HTMLElement} element A candidate descendant element that
-     * implements `IronResizableBehavior`.
-     * @return {boolean} True if the `element` should be notified of resize.
-     */
-    resizerShouldNotify: function(element) { return true; },
-
-    _onDescendantIronResize: function(event) {
-      if (this._notifyingDescendant) {
-        event.stopPropagation();
-        return;
-      }
-
-      // NOTE(cdata): In ShadowDOM, event retargetting makes echoing of the
-      // otherwise non-bubbling event "just work." We do it manually here for
-      // the case where Polymer is not using shadow roots for whatever reason:
-      if (!Polymer.Settings.useShadow) {
-        this._fireResize();
-      }
-    },
-
-    _fireResize: function() {
-      this.fire('iron-resize', null, {
-        node: this,
-        bubbles: false
-      });
-    },
-
-    _onIronRequestResizeNotifications: function(event) {
-      var target = event.path ? event.path[0] : event.target;
-
-      if (target === this) {
-        return;
-      }
-
-      if (this._interestedResizables.indexOf(target) === -1) {
-        this._interestedResizables.push(target);
-        this.listen(target, 'iron-resize', '_onDescendantIronResize');
-      }
-
-      target.assignParentResizable(this);
-      this._notifyDescendant(target);
-
-      event.stopPropagation();
-    },
-
-    _parentResizableChanged: function(parentResizable) {
-      if (parentResizable) {
-        window.removeEventListener('resize', this._boundNotifyResize);
-      }
-    },
-
-    _notifyDescendant: function(descendant) {
-      // NOTE(cdata): In IE10, attached is fired on children first, so it's
-      // important not to notify them if the parent is not attached yet (or
-      // else they will get redundantly notified when the parent attaches).
-      if (!this.isAttached) {
-        return;
-      }
-
-      this._notifyingDescendant = true;
-      descendant.notifyResize();
-      this._notifyingDescendant = false;
-    }
-  };
-/**
-   * `Polymer.IronScrollTargetBehavior` allows an element to respond to scroll events from a
-   * designated scroll target.
-   *
-   * Elements that consume this behavior can override the `_scrollHandler`
-   * method to add logic on the scroll event.
-   *
-   * @demo demo/scrolling-region.html Scrolling Region
-   * @demo demo/document.html Document Element
-   * @polymerBehavior
-   */
-  Polymer.IronScrollTargetBehavior = {
-
-    properties: {
-
-      /**
-       * Specifies the element that will handle the scroll event
-       * on the behalf of the current element. This is typically a reference to an element,
-       * but there are a few more posibilities:
-       *
-       * ### Elements id
-       *
-       *```html
-       * <div id="scrollable-element" style="overflow: auto;">
-       *  <x-element scroll-target="scrollable-element">
-       *    <!-- Content-->
-       *  </x-element>
-       * </div>
-       *```
-       * In this case, the `scrollTarget` will point to the outer div element. 
-       *
-       * ### Document scrolling
-       *
-       * For document scrolling, you can use the reserved word `document`:
-       *
-       *```html
-       * <x-element scroll-target="document">
-       *   <!-- Content -->
-       * </x-element>
-       *```
-       *
-       * ### Elements reference
-       *
-       *```js
-       * appHeader.scrollTarget = document.querySelector('#scrollable-element');
-       *```
-       * 
-       * @type {HTMLElement}
-       */
-      scrollTarget: {
-        type: HTMLElement,
-        value: function() {
-          return this._defaultScrollTarget;
-        }
-      }
-    },
-
-    observers: [
-      '_scrollTargetChanged(scrollTarget, isAttached)'
-    ],
-
-    _scrollTargetChanged: function(scrollTarget, isAttached) {
-      var eventTarget;
-
-      if (this._oldScrollTarget) {
-        eventTarget = this._oldScrollTarget === this._doc ? window : this._oldScrollTarget;
-        eventTarget.removeEventListener('scroll', this._boundScrollHandler);
-        this._oldScrollTarget = null;
-      }
-
-      if (!isAttached) {
-        return;
-      }
-      // Support element id references
-      if (scrollTarget === 'document') {
-
-        this.scrollTarget = this._doc;
-
-      } else if (typeof scrollTarget === 'string') {
-
-        this.scrollTarget = this.domHost ? this.domHost.$[scrollTarget] :
-            Polymer.dom(this.ownerDocument).querySelector('#' + scrollTarget);
-
-      } else if (this._isValidScrollTarget()) {
-
-        eventTarget = scrollTarget === this._doc ? window : scrollTarget;
-        this._boundScrollHandler = this._boundScrollHandler || this._scrollHandler.bind(this);
-        this._oldScrollTarget = scrollTarget;
-
-        eventTarget.addEventListener('scroll', this._boundScrollHandler);
-      }
-    },
-
-    /**
-     * Runs on every scroll event. Consumer of this behavior may override this method.
-     *
-     * @protected
-     */
-    _scrollHandler: function scrollHandler() {},
-
-    /**
-     * The default scroll target. Consumers of this behavior may want to customize
-     * the default scroll target.
-     *
-     * @type {Element}
-     */
-    get _defaultScrollTarget() {
-      return this._doc;
-    },
-
-    /**
-     * Shortcut for the document element
-     *
-     * @type {Element}
-     */
-    get _doc() {
-      return this.ownerDocument.documentElement;
-    },
-
-    /**
-     * Gets the number of pixels that the content of an element is scrolled upward.
-     *
-     * @type {number}
-     */
-    get _scrollTop() {
-      if (this._isValidScrollTarget()) {
-        return this.scrollTarget === this._doc ? window.pageYOffset : this.scrollTarget.scrollTop;
-      }
-      return 0;
-    },
-
-    /**
-     * Gets the number of pixels that the content of an element is scrolled to the left.
-     *
-     * @type {number}
-     */
-    get _scrollLeft() {
-      if (this._isValidScrollTarget()) {
-        return this.scrollTarget === this._doc ? window.pageXOffset : this.scrollTarget.scrollLeft;
-      }
-      return 0;
-    },
-
-    /**
-     * Sets the number of pixels that the content of an element is scrolled upward.
-     *
-     * @type {number}
-     */
-    set _scrollTop(top) {
-      if (this.scrollTarget === this._doc) {
-        window.scrollTo(window.pageXOffset, top);
-      } else if (this._isValidScrollTarget()) {
-        this.scrollTarget.scrollTop = top;
-      }
-    },
-
-    /**
-     * Sets the number of pixels that the content of an element is scrolled to the left.
-     *
-     * @type {number}
-     */
-    set _scrollLeft(left) {
-      if (this.scrollTarget === this._doc) {
-        window.scrollTo(left, window.pageYOffset);
-      } else if (this._isValidScrollTarget()) {
-        this.scrollTarget.scrollLeft = left;
-      }
-    },
-
-    /**
-     * Scrolls the content to a particular place.
-     *
-     * @method scroll
-     * @param {number} left The left position
-     * @param {number} top The top position
-     */
-    scroll: function(left, top) {
-       if (this.scrollTarget === this._doc) {
-        window.scrollTo(left, top);
-      } else if (this._isValidScrollTarget()) {
-        this.scrollTarget.scrollLeft = left;
-        this.scrollTarget.scrollTop = top;
-      }
-    },
-
-    /**
-     * Gets the width of the scroll target.
-     *
-     * @type {number}
-     */
-    get _scrollTargetWidth() {
-      if (this._isValidScrollTarget()) {
-        return this.scrollTarget === this._doc ? window.innerWidth : this.scrollTarget.offsetWidth;
-      }
-      return 0;
-    },
-
-    /**
-     * Gets the height of the scroll target.
-     *
-     * @type {number}
-     */
-    get _scrollTargetHeight() {
-      if (this._isValidScrollTarget()) {
-        return this.scrollTarget === this._doc ? window.innerHeight : this.scrollTarget.offsetHeight;
-      }
-      return 0;
-    },
-
-    /**
-     * Returns true if the scroll target is a valid HTMLElement.
-     *
-     * @return {boolean}
-     */
-    _isValidScrollTarget: function() {
-      return this.scrollTarget instanceof HTMLElement;
-    }
-  };
-/** @polymerBehavior */
-  Polymer.PaperSpinnerBehavior = {
-
-    listeners: {
-      'animationend': '__reset',
-      'webkitAnimationEnd': '__reset'
-    },
-
-    properties: {
-      /**
-       * Displays the spinner.
-       */
-      active: {
-        type: Boolean,
-        value: false,
-        reflectToAttribute: true,
-        observer: '__activeChanged'
-      },
-
-      /**
-       * Alternative text content for accessibility support.
-       * If alt is present, it will add an aria-label whose content matches alt when active.
-       * If alt is not present, it will default to 'loading' as the alt value.
-       */
-      alt: {
-        type: String,
-        value: 'loading',
-        observer: '__altChanged'
-      },
-
-      __coolingDown: {
-        type: Boolean,
-        value: false
-      }
-    },
-
-    __computeContainerClasses: function(active, coolingDown) {
-      return [
-        active || coolingDown ? 'active' : '',
-        coolingDown ? 'cooldown' : ''
-      ].join(' ');
-    },
-
-    __activeChanged: function(active, old) {
-      this.__setAriaHidden(!active);
-      this.__coolingDown = !active && old;
-    },
-
-    __altChanged: function(alt) {
-      // user-provided `aria-label` takes precedence over prototype default
-      if (alt === this.getPropertyInfo('alt').value) {
-        this.alt = this.getAttribute('aria-label') || alt;
-      } else {
-        this.__setAriaHidden(alt==='');
-        this.setAttribute('aria-label', alt);
-      }
-    },
-
-    __setAriaHidden: function(hidden) {
-      var attr = 'aria-hidden';
-      if (hidden) {
-        this.setAttribute(attr, 'true');
-      } else {
-        this.removeAttribute(attr);
-      }
-    },
-
-    __reset: function() {
-      this.active = false;
-      this.__coolingDown = false;
-    }
-  };
-(function() {
-      'use strict';
-
-      Polymer.IronA11yAnnouncer = Polymer({
-        is: 'iron-a11y-announcer',
-
-        properties: {
-
-          /**
-           * The value of mode is used to set the `aria-live` attribute
-           * for the element that will be announced. Valid values are: `off`,
-           * `polite` and `assertive`.
-           */
-          mode: {
-            type: String,
-            value: 'polite'
-          },
-
-          _text: {
-            type: String,
-            value: ''
-          }
-        },
-
-        created: function() {
-          if (!Polymer.IronA11yAnnouncer.instance) {
-            Polymer.IronA11yAnnouncer.instance = this;
-          }
-
-          document.body.addEventListener('iron-announce', this._onIronAnnounce.bind(this));
-        },
-
-        /**
-         * Cause a text string to be announced by screen readers.
-         *
-         * @param {string} text The text that should be announced.
-         */
-        announce: function(text) {
-          this._text = '';
-          this.async(function() {
-            this._text = text;
-          }, 100);
-        },
-
-        _onIronAnnounce: function(event) {
-          if (event.detail && event.detail.text) {
-            this.announce(event.detail.text);
-          }
-        }
-      });
-
-      Polymer.IronA11yAnnouncer.instance = null;
-
-      Polymer.IronA11yAnnouncer.requestAvailability = function() {
-        if (!Polymer.IronA11yAnnouncer.instance) {
-          Polymer.IronA11yAnnouncer.instance = document.createElement('iron-a11y-announcer');
-        }
-
-        document.body.appendChild(Polymer.IronA11yAnnouncer.instance);
-      };
-    })();
-(function() {
-
-  Polymer({
-
-    is: 't-input-container',
-
-    properties: {
-
-      /**
-       * Set to true to fire the validate method on blur
-       */
-      fireBlur: {
-        type: Boolean,
-        value: true
-      },
-
-      /**
-       * Set to true to disable the floating label. The label disappears when the input value is
-       * not null.
-       */
-      noLabelFloat: {
-        type: Boolean,
-        value: false
-      },
-
-      /**
-       * Set to true to always float the floating label.
-       */
-      alwaysFloatLabel: {
-        type: Boolean,
-        value: false
-      },
-
-      /**
-       * The attribute to listen for value changes on.
-       */
-      attrForValue: {
-        type: String,
-        value: 'bind-value'
-      },
-
-      /**
-       * Set to true to auto-validate the input value when it changes.
-       */
-      autoValidate: {
-        type: Boolean,
-        value: false
-      },
-
-      /**
-       * True if the input is invalid. This property is set automatically when the input value
-       * changes if auto-validating, or when the `iron-input-valid` event is heard from a child.
-       */
-      invalid: {
-        observer: '_invalidChanged',
-        type: Boolean,
-        reflectToAttribute:true,
-        value: false
-      },
-
-      /**
-       * True if the input has focus.
-       */
-      focused: {
-        readOnly: true,
-        type: Boolean,
-        value: false
-      },
-
-      _addons: {
-        type: Array,
-        value: function() {
-          return [];
-        }
-      },
-
-      _inputHasContent: {
-        type: Boolean,
-        value: false
-      },
-
-      _inputSelector: {
-        type: String,
-        value: 'input,textarea,.paper-input-input'
-      },
-
-      _boundOnFocus: {
-        type: Function,
-        value: function() {
-          return this._onFocus.bind(this);
-        }
-      },
-
-      _boundOnBlur: {
-        type: Function,
-        value: function() {
-          return this._onBlur.bind(this);
-        }
-      },
-
-      _boundOnInput: {
-        type: Function,
-        value: function() {
-          this._onInput.bind(this)
-        }
-      },
-
-      _boundValueChanged: {
-        type: Function,
-        value: function() {
-          return this._onValueChanged.bind(this);
-        }
-      }
-
-    },
-
-    listeners: {
-      'addon-attached': '_onAddonAttached',
-      'iron-input-validate': '_onIronInputValidate'
-    },
-
-    get _valueChangedEvent() {
-      return this.attrForValue + '-changed';
-    },
-
-    get _propertyForValue() {
-      return Polymer.CaseMap.dashToCamelCase(this.attrForValue);
-    },
-
-    get _inputElement() {
-      return Polymer.dom(this).querySelector(this._inputSelector);
-    },
-
-    ready: function() {
-      this.addEventListener('focus', this._boundOnFocus, true);
-      this.addEventListener('blur', this._boundOnBlur, true);
-      if (this.attrForValue) {
-        this._inputElement.addEventListener(this._valueChangedEvent, this._boundValueChanged);
-      } else {
-        this.addEventListener('input', this._onInput);
-      }
-    },
-
-    attached: function() {
-      this._handleValue(this._inputElement);
-    },
-
-    _onAddonAttached: function(event) {
-      this._addons.push(event.target);
-      this._handleValue(this._inputElement);
-    },
-
-    _onFocus: function() {
-      this._setFocused(true);
-    },
-
-    _onBlur: function() {
-      this._setFocused(false);
-      if(this.domHost.required && this.fireBlur){
-        this.domHost.validate();
-      }
-    },
-
-    _onInput: function(event) {
-      this._handleValue(event.target);
-    },
-
-    _onValueChanged: function(event) {
-      this._handleValue(event.target);
-    },
-
-    _handleValue: function(inputElement) {
-      var value = inputElement[this._propertyForValue] || inputElement.value;
-      if (this.autoValidate && value.length>0) {
-        var valid;
-        if (inputElement.validate) {
-          valid = inputElement.validate(value);
-        } else {
-          valid = inputElement.checkValidity();
-        }
-        this.invalid = !valid;
-      }
-
-      // type="number" hack needed because this.value is empty until it's valid
-      if (value || (inputElement.type === 'number' && !inputElement.checkValidity())) {
-        this._inputHasContent = true;
-      } else {
-        this._inputHasContent = false;
-      }
-
-      this.updateAddons({
-        inputElement: inputElement,
-        value: value,
-        invalid: this.invalid
-      });
-    },
-
-    _onIronInputValidate: function(event) {
-      this.invalid = this._inputElement.invalid;
-      if(this.invalid){
-        this.classList.add('invalid-input');
-      }else{
-        this.classList.remove('invalid-input');
-      }
-    },
-
-    _invalidChanged: function() {
-      if (this._addons) {
-        this.updateAddons({invalid: this.invalid});
-      }
-    },
-
-    /**
-     * Call this to update the state of add-ons.
-     * @param {Object} state Add-on state.
-     */
-    updateAddons: function(state) {
-      for (var addon, index = 0; addon = this._addons[index]; index++) {
-        addon.update(state);
-      }
-    },
-
-    _computeInputContentClass: function(noLabelFloat, alwaysFloatLabel, focused, invalid, _inputHasContent) {
-      var cls = 'input-content';
-      if (!noLabelFloat) {
-        if (alwaysFloatLabel || _inputHasContent) {
-          cls += ' label-is-floating';
-          if (invalid) {
-            cls += ' is-invalid';
-            this.classList.add('invalid-input');
-          } else if (focused) {
-            this.classList.remove('invalid-input');
-            cls += " label-is-highlighted";
-          }
-        }
-      } else {
-        if (_inputHasContent) {
-          cls += ' label-is-hidden';
-        }
-      }
-      return cls;
-    },
-
-    _computeUnderlineClass: function(focused, invalid) {
-      var cls = 'underline';
-      if (invalid) {
-        cls += ' is-invalid';
-      } else if (focused) {
-        cls += ' is-highlighted'
-      }
-      return cls;
-    },
-
-    _computeAddOnContentClass: function(focused, invalid) {
-      var cls = 'add-on-content';
-      if (invalid) {
-        cls += ' is-invalid';
-      } else if (focused) {
-        cls += ' is-highlighted'
-      }
-      return cls;
-    }
-
-  });
-
-})();
-(function() {
-
-  Polymer({
-
-    is: 't-master-input',
-
-    behaviors: [
-      Polymer.PaperInputBehavior,
-      Polymer.IronFormElementBehavior
-    ]
-
-  })
-
-})();
-Polymer({
-
-    is: 'iron-autogrow-textarea',
-
-    behaviors: [
-      Polymer.IronFormElementBehavior,
-      Polymer.IronValidatableBehavior,
-      Polymer.IronControlState
-    ],
-
-    properties: {
-
-      /**
-       * Use this property instead of `value` for two-way data binding.
-       * This property will be deprecated in the future. Use `value` instead.
-       * @type {string|number}
-       */
-      bindValue: {
-        observer: '_bindValueChanged',
-        type: String
-      },
-
-      /**
-       * The initial number of rows.
-       *
-       * @attribute rows
-       * @type number
-       * @default 1
-       */
-      rows: {
-        type: Number,
-        value: 1,
-        observer: '_updateCached'
-      },
-
-      /**
-       * The maximum number of rows this element can grow to until it
-       * scrolls. 0 means no maximum.
-       *
-       * @attribute maxRows
-       * @type number
-       * @default 0
-       */
-      maxRows: {
-       type: Number,
-       value: 0,
-       observer: '_updateCached'
-      },
-
-      /**
-       * Bound to the textarea's `autocomplete` attribute.
-       */
-      autocomplete: {
-        type: String,
-        value: 'off'
-      },
-
-      /**
-       * Bound to the textarea's `autofocus` attribute.
-       */
-      autofocus: {
-        type: Boolean,
-        value: false
-      },
-
-      /**
-       * Bound to the textarea's `inputmode` attribute.
-       */
-      inputmode: {
-        type: String
-      },
-
-      /**
-       * Bound to the textarea's `placeholder` attribute.
-       */
-      placeholder: {
-        type: String
-      },
-
-      /**
-       * Bound to the textarea's `readonly` attribute.
-       */
-      readonly: {
-        type: String
-      },
-
-      /**
-       * Set to true to mark the textarea as required.
-       */
-      required: {
-        type: Boolean
-      },
-
-      /**
-       * The maximum length of the input value.
-       */
-      maxlength: {
-        type: Number
-      }
-
-    },
-
-    listeners: {
-      'input': '_onInput'
-    },
-
-    observers: [
-      '_onValueChanged(value)'
-    ],
-
-    /**
-     * Returns the underlying textarea.
-     * @type HTMLTextAreaElement
-     */
-    get textarea() {
-      return this.$.textarea;
-    },
-
-    /**
-     * Returns textarea's selection start.
-     * @type Number
-     */
-    get selectionStart() {
-      return this.$.textarea.selectionStart;
-    },
-
-    /**
-     * Returns textarea's selection end.
-     * @type Number
-     */
-    get selectionEnd() {
-      return this.$.textarea.selectionEnd;
-    },
-
-    /**
-     * Sets the textarea's selection start.
-     */
-    set selectionStart(value) {
-      this.$.textarea.selectionStart = value;
-    },
-
-    /**
-     * Sets the textarea's selection end.
-     */
-    set selectionEnd(value) {
-      this.$.textarea.selectionEnd = value;
-    },
-
-    /**
-     * Returns true if `value` is valid. The validator provided in `validator`
-     * will be used first, if it exists; otherwise, the `textarea`'s validity
-     * is used.
-     * @return {boolean} True if the value is valid.
-     */
-    validate: function() {
-      // Empty, non-required input is valid.
-      if (!this.required && this.value == '') {
-        this.invalid = false;
-        return true;
-      }
-
-      var valid;
-      if (this.hasValidator()) {
-        valid = Polymer.IronValidatableBehavior.validate.call(this, this.value);
-      } else {
-        valid = this.$.textarea.validity.valid;
-        this.invalid = !valid;
-      }
-      this.fire('iron-input-validate');
-      return valid;
-    },
-
-    _bindValueChanged: function() {
-      var textarea = this.textarea;
-      if (!textarea) {
-        return;
-      }
-
-      // If the bindValue changed manually, then we need to also update
-      // the underlying textarea's value. Otherwise this change was probably
-      // generated from the _onInput handler, and the two values are already
-      // the same.
-      if (textarea.value !== this.bindValue) {
-        textarea.value = !(this.bindValue || this.bindValue === 0) ? '' : this.bindValue;
-      }
-
-      this.value = this.bindValue;
-      this.$.mirror.innerHTML = this._valueForMirror();
-      // manually notify because we don't want to notify until after setting value
-      this.fire('bind-value-changed', {value: this.bindValue});
-    },
-
-    _onInput: function(event) {
-      this.bindValue = event.path ? event.path[0].value : event.target.value;
-    },
-
-    _constrain: function(tokens) {
-      var _tokens;
-      tokens = tokens || [''];
-      // Enforce the min and max heights for a multiline input to avoid measurement
-      if (this.maxRows > 0 && tokens.length > this.maxRows) {
-        _tokens = tokens.slice(0, this.maxRows);
-      } else {
-        _tokens = tokens.slice(0);
-      }
-      while (this.rows > 0 && _tokens.length < this.rows) {
-        _tokens.push('');
-      }
-      // Use &#160; instead &nbsp; of to allow this element to be used in XHTML.
-      return _tokens.join('<br/>') + '&#160;';
-    },
-
-    _valueForMirror: function() {
-      var input = this.textarea;
-      if (!input) {
-        return;
-      }
-      this.tokens = (input && input.value) ? input.value.replace(/&/gm, '&amp;').replace(/"/gm, '&quot;').replace(/'/gm, '&#39;').replace(/</gm, '&lt;').replace(/>/gm, '&gt;').split('\n') : [''];
-      return this._constrain(this.tokens);
-    },
-
-    _updateCached: function() {
-      this.$.mirror.innerHTML = this._constrain(this.tokens);
-    },
-
-    _onValueChanged: function() {
-      this.bindValue = this.value;
-    }
-  });
-Polymer({
-    is: 'paper-input-error',
-
-    behaviors: [
-      Polymer.PaperInputAddonBehavior
-    ],
-
-    properties: {
-      /**
-       * True if the error is showing.
-       */
-      invalid: {
-        readOnly: true,
-        reflectToAttribute: true,
-        type: Boolean
-      }
-    },
-
-    /**
-     * This overrides the update function in PaperInputAddonBehavior.
-     * @param {{
-     *   inputElement: (Element|undefined),
-     *   value: (string|undefined),
-     *   invalid: boolean
-     * }} state -
-     *     inputElement: The input element.
-     *     value: The input value.
-     *     invalid: True if the input value is invalid.
-     */
-    update: function(state) {
-      this._setInvalid(state.invalid);
-    }
-  });
-Polymer({
-    is: 'paper-input-char-counter',
-
-    behaviors: [
-      Polymer.PaperInputAddonBehavior
-    ],
-
-    properties: {
-      _charCounterStr: {
-        type: String,
-        value: '0'
-      }
-    },
-
-    /**
-     * This overrides the update function in PaperInputAddonBehavior.
-     * @param {{
-     *   inputElement: (Element|undefined),
-     *   value: (string|undefined),
-     *   invalid: boolean
-     * }} state -
-     *     inputElement: The input element.
-     *     value: The input value.
-     *     invalid: True if the input value is invalid.
-     */
-    update: function(state) {
-      if (!state.inputElement) {
-        return;
-      }
-
-      state.value = state.value || '';
-
-      var counter = state.value.length.toString();
-
-      if (state.inputElement.hasAttribute('maxlength')) {
-        counter += '/' + state.inputElement.getAttribute('maxlength');
-      }
-
-      this._charCounterStr = counter;
-    }
-  });
-(function() {
-
-  Polymer({
-
-    is: 't-textarea',
-
-    behaviors: [
-      Polymer.PaperInputBehavior
-    ],
-
-    properties: {
-
-      _ariaLabelledBy: {
-        observer: '_ariaLabelledByChanged',
-        type: String
-      },
-
-      _ariaDescribedBy: {
-        observer: '_ariaDescribedByChanged',
-        type: String
-      },
-
-      /**
-       * The initial number of rows.
-       *
-       * @attribute rows
-       * @type number
-       * @default 1
-       */
-      rows: {
-        type: Number,
-        value: 1
-      },
-
-      /**
-       * The maximum number of rows this element can grow to until it
-       * scrolls. 0 means no maximum.
-       *
-       * @attribute maxRows
-       * @type number
-       * @default 0
-       */
-      maxRows: {
-       type: Number,
-       value: 0
-      },
-
-    },
-
-    _ariaLabelledByChanged: function(ariaLabelledBy) {
-      this.$.input.textarea.setAttribute('aria-labelledby', ariaLabelledBy);
-    },
-
-    _ariaDescribedByChanged: function(ariaDescribedBy) {
-      this.$.input.textarea.setAttribute('aria-describedby', ariaDescribedBy);
-    }
-
-  });
-
-})();
-Polymer({
-
-	is: "t-input",
-
-	properties:{
-
-	    /**
-	     * Name property
-	    */
-	    name: {
-	      type: String,
-	      value: '',
-	      reflectToAttribute: true
-	    },		
-
-		/**
-       * The label for this input. Bind this to `<paper-input-container>`'s `label` property.
-       */
-		label: {
-			type:String,
-			value:"Untitled Input Field",
-			reflectToAttribute: true
-		},
-
-		/**
-       * The type of the input. The supported types are `text`, `number` and `password`. Bind this
-       * to the `<input is="iron-input">`'s `type` property.
-       */
-		type: {
-			type:String,
-			reflectToAttribute: true
-		},
-
-		/**
-       * A pattern to validate the `input` with. Bind this to the `<input is="iron-input">`'s
-       * `pattern` property.
-       */
-		pattern: {
-			type:String,
-			reflectToAttribute: true
-		},
-
-		/**
-       * Set to true to show a character counter.
-       */
-		charCounter:  {
-			type: Boolean,
-			value: false,
-			reflectToAttribute: true
-		},
-
-		/**
-       * Set to true to validate on blur
-       */
-		validateOnBlur:  {
-			type: Boolean,
-			value: true
-		},
-
- 		/**
-       * Set to true to prevent the user from entering invalid input. Bind this to the
-       * `<input is="iron-input">`'s `preventInvalidInput` property.
-       */
-		preventInvalidInput:{
-			type: Boolean
-		},
-
-		/**
-       * The error message to display when the input is invalid. Bind this to the
-       * `<paper-input-error>`'s content, if using.
-       */
-		errorMessage: {
-			type:String,
-			value:'required',
-			reflectToAttribute: true
-		},
-
-		/**
-       * Set to true to disable the floating label. Bind this to the `<paper-input-container>`'s
-       * `noLabelFloat` property.
-       */
-		noLabelFloat: {
-			type: Boolean,
-			value: false,
-			reflectToAttribute: true
-		},
-
-		/**
-       * The maximum length of the input value. Bind this to the `<input is="iron-input">`'s
-       * `maxlength` property.
-       */
-		maxLength: {
-			type:Number,
-			reflectToAttribute: true
-		},
-
-		/**
-	       * The minimum (numeric or date-time) input value.
-	       * If you're using PaperInputBehavior to implement your own paper-input-like
-	       * element, bind this to the `<input is="iron-input">`'s `min` property.
-	       */
-	      min: {
-	        type: String
-	      },
-
-	      /**
-	       * The maximum (numeric or date-time) input value.
-	       * Can be a String (e.g. `"2000-1-1"`) or a Number (e.g. `2`).
-	       * If you're using PaperInputBehavior to implement your own paper-input-like
-	       * element, bind this to the `<input is="iron-input">`'s `max` property.
-	       */
-	      max: {
-	        type: String
-	      },
-
-
-		/**
-       * Set to true to auto-validate the input value. Bind this to the `<paper-input-container>`'s
-       * `autoValidate` property.
-       */
-       autoValidate:  {
-			type: Boolean,
-			value: false,
-			reflectToAttribute: true
-		},
-
-		/**
-       * Set to true to mark the input as required. Bind this to the `<input is="iron-input">`'s
-       * `required` property.
-       */
-		required:  {
-			type: Boolean,
-			value: false,
-			reflectToAttribute: true
-		},
-
-		/**
-       * Set to true to switch to a text-area
-       */
-		multiLine: {
-			type: Boolean,
-			value: false,
-			reflectToAttribute: true
-		},
-
-		/**
-       * Set to true to disable this input. 
-       */
-		disabled: {
-			type: Boolean,
-			value: false,
-			reflectToAttribute: true
-		},
-
-
-		/**
-       * The initial number of rows.
-       *
-       * @attribute rows
-       * @type number
-       * @default 3
-       */
-	      rows: {
-	        type: Number,
-	        value: 3
-	      },
-		
-		/**
-       * The initial number of rows.
-       *
-       * @attribute rows
-       * @type number
-       * @default 3
-       */
-	      maxRows: {
-	        type: Number,
-	        value: 10
-	      },
-
-		/**
-       * The value for this input. Bind this to the `<input is="iron-input">`'s `bindValue`
-       * property, or the value property of your input that is `notify:true`.
-       */
-		value: {
-			type:String,
-			notify:true,
-			reflectToAttribute: true
-		},
-
-		 // HTMLInputElement attributes for binding if needed
-	      /**
-	       * If you're using PaperInputBehavior to implement your own paper-input-like
-	       * element, bind this to the `<input is="iron-input">`'s `autocomplete` property.
-	       */
-	      autocomplete: {
-	        type: String,
-	        value: 'off'
-	      },
-
-			// Nonstandard attributes for binding if needed
-	      /**
-	       * If you're using PaperInputBehavior to implement your own paper-input-like
-	       * element, bind this to the `<input is="iron-input">`'s `autocapitalize` property.
-	       */
-	      autocapitalize: {
-	        type: String,
-	        value: 'none'
-	      },
-	      /**
-	       * If you're using PaperInputBehavior to implement your own paper-input-like
-	       * element, bind this to the `<input is="iron-input">`'s `autocorrect` property.
-	       */
-	      autocorrect: {
-	        type: String,
-	        value: 'off'
-	      }
-
-	}, 
-
-	_checkRowValidity: function(row){
-		if(row <= 1)
-			return false;
-		return true;
-	},
-
-	validate: function(){
-		return Polymer.dom(this.root).querySelector('#input').validate();
-	}
-});
-(function() {
-    var Utility = {
-      distance: function(x1, y1, x2, y2) {
-        var xDelta = (x1 - x2);
-        var yDelta = (y1 - y2);
-
-        return Math.sqrt(xDelta * xDelta + yDelta * yDelta);
-      },
-
-      now: window.performance && window.performance.now ?
-          window.performance.now.bind(window.performance) : Date.now
-    };
-
-    /**
-     * @param {HTMLElement} element
-     * @constructor
-     */
-    function ElementMetrics(element) {
-      this.element = element;
-      this.width = this.boundingRect.width;
-      this.height = this.boundingRect.height;
-
-      this.size = Math.max(this.width, this.height);
-    }
-
-    ElementMetrics.prototype = {
-      get boundingRect () {
-        return this.element.getBoundingClientRect();
-      },
-
-      furthestCornerDistanceFrom: function(x, y) {
-        var topLeft = Utility.distance(x, y, 0, 0);
-        var topRight = Utility.distance(x, y, this.width, 0);
-        var bottomLeft = Utility.distance(x, y, 0, this.height);
-        var bottomRight = Utility.distance(x, y, this.width, this.height);
-
-        return Math.max(topLeft, topRight, bottomLeft, bottomRight);
-      }
-    };
-
-    /**
-     * @param {HTMLElement} element
-     * @constructor
-     */
-    function Ripple(element) {
-      this.element = element;
-      this.color = window.getComputedStyle(element).color;
-
-      this.wave = document.createElement('div');
-      this.waveContainer = document.createElement('div');
-      this.wave.style.backgroundColor = this.color;
-      this.wave.classList.add('wave');
-      this.waveContainer.classList.add('wave-container');
-      Polymer.dom(this.waveContainer).appendChild(this.wave);
-
-      this.resetInteractionState();
-    }
-
-    Ripple.MAX_RADIUS = 300;
-
-    Ripple.prototype = {
-      get recenters() {
-        return this.element.recenters;
-      },
-
-      get center() {
-        return this.element.center;
-      },
-
-      get mouseDownElapsed() {
-        var elapsed;
-
-        if (!this.mouseDownStart) {
-          return 0;
-        }
-
-        elapsed = Utility.now() - this.mouseDownStart;
-
-        if (this.mouseUpStart) {
-          elapsed -= this.mouseUpElapsed;
-        }
-
-        return elapsed;
-      },
-
-      get mouseUpElapsed() {
-        return this.mouseUpStart ?
-          Utility.now () - this.mouseUpStart : 0;
-      },
-
-      get mouseDownElapsedSeconds() {
-        return this.mouseDownElapsed / 1000;
-      },
-
-      get mouseUpElapsedSeconds() {
-        return this.mouseUpElapsed / 1000;
-      },
-
-      get mouseInteractionSeconds() {
-        return this.mouseDownElapsedSeconds + this.mouseUpElapsedSeconds;
-      },
-
-      get initialOpacity() {
-        return this.element.initialOpacity;
-      },
-
-      get opacityDecayVelocity() {
-        return this.element.opacityDecayVelocity;
-      },
-
-      get radius() {
-        var width2 = this.containerMetrics.width * this.containerMetrics.width;
-        var height2 = this.containerMetrics.height * this.containerMetrics.height;
-        var waveRadius = Math.min(
-          Math.sqrt(width2 + height2),
-          Ripple.MAX_RADIUS
-        ) * 1.1 + 5;
-
-        var duration = 1.1 - 0.2 * (waveRadius / Ripple.MAX_RADIUS);
-        var timeNow = this.mouseInteractionSeconds / duration;
-        var size = waveRadius * (1 - Math.pow(80, -timeNow));
-
-        return Math.abs(size);
-      },
-
-      get opacity() {
-        if (!this.mouseUpStart) {
-          return this.initialOpacity;
-        }
-
-        return Math.max(
-          0,
-          this.initialOpacity - this.mouseUpElapsedSeconds * this.opacityDecayVelocity
-        );
-      },
-
-      get outerOpacity() {
-        // Linear increase in background opacity, capped at the opacity
-        // of the wavefront (waveOpacity).
-        var outerOpacity = this.mouseUpElapsedSeconds * 0.3;
-        var waveOpacity = this.opacity;
-
-        return Math.max(
-          0,
-          Math.min(outerOpacity, waveOpacity)
-        );
-      },
-
-      get isOpacityFullyDecayed() {
-        return this.opacity < 0.01 &&
-          this.radius >= Math.min(this.maxRadius, Ripple.MAX_RADIUS);
-      },
-
-      get isRestingAtMaxRadius() {
-        return this.opacity >= this.initialOpacity &&
-          this.radius >= Math.min(this.maxRadius, Ripple.MAX_RADIUS);
-      },
-
-      get isAnimationComplete() {
-        return this.mouseUpStart ?
-          this.isOpacityFullyDecayed : this.isRestingAtMaxRadius;
-      },
-
-      get translationFraction() {
-        return Math.min(
-          1,
-          this.radius / this.containerMetrics.size * 2 / Math.sqrt(2)
-        );
-      },
-
-      get xNow() {
-        if (this.xEnd) {
-          return this.xStart + this.translationFraction * (this.xEnd - this.xStart);
-        }
-
-        return this.xStart;
-      },
-
-      get yNow() {
-        if (this.yEnd) {
-          return this.yStart + this.translationFraction * (this.yEnd - this.yStart);
-        }
-
-        return this.yStart;
-      },
-
-      get isMouseDown() {
-        return this.mouseDownStart && !this.mouseUpStart;
-      },
-
-      resetInteractionState: function() {
-        this.maxRadius = 0;
-        this.mouseDownStart = 0;
-        this.mouseUpStart = 0;
-
-        this.xStart = 0;
-        this.yStart = 0;
-        this.xEnd = 0;
-        this.yEnd = 0;
-        this.slideDistance = 0;
-
-        this.containerMetrics = new ElementMetrics(this.element);
-      },
-
-      draw: function() {
-        var scale;
-        var translateString;
-        var dx;
-        var dy;
-
-        this.wave.style.opacity = this.opacity;
-
-        scale = this.radius / (this.containerMetrics.size / 2);
-        dx = this.xNow - (this.containerMetrics.width / 2);
-        dy = this.yNow - (this.containerMetrics.height / 2);
-
-
-        // 2d transform for safari because of border-radius and overflow:hidden clipping bug.
-        // https://bugs.webkit.org/show_bug.cgi?id=98538
-        this.waveContainer.style.webkitTransform = 'translate(' + dx + 'px, ' + dy + 'px)';
-        this.waveContainer.style.transform = 'translate3d(' + dx + 'px, ' + dy + 'px, 0)';
-        this.wave.style.webkitTransform = 'scale(' + scale + ',' + scale + ')';
-        this.wave.style.transform = 'scale3d(' + scale + ',' + scale + ',1)';
-      },
-
-      /** @param {Event=} event */
-      downAction: function(event) {
-        var xCenter = this.containerMetrics.width / 2;
-        var yCenter = this.containerMetrics.height / 2;
-
-        this.resetInteractionState();
-        this.mouseDownStart = Utility.now();
-
-        if (this.center) {
-          this.xStart = xCenter;
-          this.yStart = yCenter;
-          this.slideDistance = Utility.distance(
-            this.xStart, this.yStart, this.xEnd, this.yEnd
-          );
-        } else {
-          this.xStart = event ?
-              event.detail.x - this.containerMetrics.boundingRect.left :
-              this.containerMetrics.width / 2;
-          this.yStart = event ?
-              event.detail.y - this.containerMetrics.boundingRect.top :
-              this.containerMetrics.height / 2;
-        }
-
-        if (this.recenters) {
-          this.xEnd = xCenter;
-          this.yEnd = yCenter;
-          this.slideDistance = Utility.distance(
-            this.xStart, this.yStart, this.xEnd, this.yEnd
-          );
-        }
-
-        this.maxRadius = this.containerMetrics.furthestCornerDistanceFrom(
-          this.xStart,
-          this.yStart
-        );
-
-        this.waveContainer.style.top =
-          (this.containerMetrics.height - this.containerMetrics.size) / 2 + 'px';
-        this.waveContainer.style.left =
-          (this.containerMetrics.width - this.containerMetrics.size) / 2 + 'px';
-
-        this.waveContainer.style.width = this.containerMetrics.size + 'px';
-        this.waveContainer.style.height = this.containerMetrics.size + 'px';
-      },
-
-      /** @param {Event=} event */
-      upAction: function(event) {
-        if (!this.isMouseDown) {
-          return;
-        }
-
-        this.mouseUpStart = Utility.now();
-      },
-
-      remove: function() {
-        Polymer.dom(this.waveContainer.parentNode).removeChild(
-          this.waveContainer
-        );
-      }
-    };
-
-    Polymer({
-      is: 'paper-ripple',
-
-      behaviors: [
-        Polymer.IronA11yKeysBehavior
-      ],
-
-      properties: {
-        /**
-         * The initial opacity set on the wave.
-         *
-         * @attribute initialOpacity
-         * @type number
-         * @default 0.25
-         */
-        initialOpacity: {
-          type: Number,
-          value: 0.25
-        },
-
-        /**
-         * How fast (opacity per second) the wave fades out.
-         *
-         * @attribute opacityDecayVelocity
-         * @type number
-         * @default 0.8
-         */
-        opacityDecayVelocity: {
-          type: Number,
-          value: 0.8
-        },
-
-        /**
-         * If true, ripples will exhibit a gravitational pull towards
-         * the center of their container as they fade away.
-         *
-         * @attribute recenters
-         * @type boolean
-         * @default false
-         */
-        recenters: {
-          type: Boolean,
-          value: false
-        },
-
-        /**
-         * If true, ripples will center inside its container
-         *
-         * @attribute recenters
-         * @type boolean
-         * @default false
-         */
-        center: {
-          type: Boolean,
-          value: false
-        },
-
-        /**
-         * A list of the visual ripples.
-         *
-         * @attribute ripples
-         * @type Array
-         * @default []
-         */
-        ripples: {
-          type: Array,
-          value: function() {
-            return [];
-          }
-        },
-
-        /**
-         * True when there are visible ripples animating within the
-         * element.
-         */
-        animating: {
-          type: Boolean,
-          readOnly: true,
-          reflectToAttribute: true,
-          value: false
-        },
-
-        /**
-         * If true, the ripple will remain in the "down" state until `holdDown`
-         * is set to false again.
-         */
-        holdDown: {
-          type: Boolean,
-          value: false,
-          observer: '_holdDownChanged'
-        },
-
-        /**
-         * If true, the ripple will not generate a ripple effect
-         * via pointer interaction.
-         * Calling ripple's imperative api like `simulatedRipple` will
-         * still generate the ripple effect.
-         */
-        noink: {
-          type: Boolean,
-          value: false
-        },
-
-        _animating: {
-          type: Boolean
-        },
-
-        _boundAnimate: {
-          type: Function,
-          value: function() {
-            return this.animate.bind(this);
-          }
-        }
-      },
-
-      get target () {
-        var ownerRoot = Polymer.dom(this).getOwnerRoot();
-        var target;
-
-        if (this.parentNode.nodeType == 11) { // DOCUMENT_FRAGMENT_NODE
-          target = ownerRoot.host;
-        } else {
-          target = this.parentNode;
-        }
-
-        return target;
-      },
-
-      keyBindings: {
-        'enter:keydown': '_onEnterKeydown',
-        'space:keydown': '_onSpaceKeydown',
-        'space:keyup': '_onSpaceKeyup'
-      },
-
-      attached: function() {
-        // Set up a11yKeysBehavior to listen to key events on the target,
-        // so that space and enter activate the ripple even if the target doesn't
-        // handle key events. The key handlers deal with `noink` themselves.
-        this.keyEventTarget = this.target;
-        this.listen(this.target, 'up', 'uiUpAction');
-        this.listen(this.target, 'down', 'uiDownAction');
-      },
-
-      detached: function() {
-        this.unlisten(this.target, 'up', 'uiUpAction');
-        this.unlisten(this.target, 'down', 'uiDownAction');
-      },
-
-      get shouldKeepAnimating () {
-        for (var index = 0; index < this.ripples.length; ++index) {
-          if (!this.ripples[index].isAnimationComplete) {
-            return true;
-          }
-        }
-
-        return false;
-      },
-
-      simulatedRipple: function() {
-        this.downAction(null);
-
-        // Please see polymer/polymer#1305
-        this.async(function() {
-          this.upAction();
-        }, 1);
-      },
-
-      /**
-       * Provokes a ripple down effect via a UI event,
-       * respecting the `noink` property.
-       * @param {Event=} event
-       */
-      uiDownAction: function(event) {
-        if (!this.noink) {
-          this.downAction(event);
-        }
-      },
-
-      /**
-       * Provokes a ripple down effect via a UI event,
-       * *not* respecting the `noink` property.
-       * @param {Event=} event
-       */
-      downAction: function(event) {
-        if (this.holdDown && this.ripples.length > 0) {
-          return;
-        }
-
-        var ripple = this.addRipple();
-
-        ripple.downAction(event);
-
-        if (!this._animating) {
-          this.animate();
-        }
-      },
-
-      /**
-       * Provokes a ripple up effect via a UI event,
-       * respecting the `noink` property.
-       * @param {Event=} event
-       */
-      uiUpAction: function(event) {
-        if (!this.noink) {
-          this.upAction(event);
-        }
-      },
-
-      /**
-       * Provokes a ripple up effect via a UI event,
-       * *not* respecting the `noink` property.
-       * @param {Event=} event
-       */
-      upAction: function(event) {
-        if (this.holdDown) {
-          return;
-        }
-
-        this.ripples.forEach(function(ripple) {
-          ripple.upAction(event);
-        });
-
-        this.animate();
-      },
-
-      onAnimationComplete: function() {
-        this._animating = false;
-        this.$.background.style.backgroundColor = null;
-        this.fire('transitionend');
-      },
-
-      addRipple: function() {
-        var ripple = new Ripple(this);
-
-        Polymer.dom(this.$.waves).appendChild(ripple.waveContainer);
-        this.$.background.style.backgroundColor = ripple.color;
-        this.ripples.push(ripple);
-
-        this._setAnimating(true);
-
-        return ripple;
-      },
-
-      removeRipple: function(ripple) {
-        var rippleIndex = this.ripples.indexOf(ripple);
-
-        if (rippleIndex < 0) {
-          return;
-        }
-
-        this.ripples.splice(rippleIndex, 1);
-
-        ripple.remove();
-
-        if (!this.ripples.length) {
-          this._setAnimating(false);
-        }
-      },
-
-      animate: function() {
-        var index;
-        var ripple;
-
-        this._animating = true;
-
-        for (index = 0; index < this.ripples.length; ++index) {
-          ripple = this.ripples[index];
-
-          ripple.draw();
-
-          this.$.background.style.opacity = ripple.outerOpacity;
-
-          if (ripple.isOpacityFullyDecayed && !ripple.isRestingAtMaxRadius) {
-            this.removeRipple(ripple);
-          }
-        }
-
-        if (!this.shouldKeepAnimating && this.ripples.length === 0) {
-          this.onAnimationComplete();
-        } else {
-          window.requestAnimationFrame(this._boundAnimate);
-        }
-      },
-
-      _onEnterKeydown: function() {
-        this.uiDownAction();
-        this.async(this.uiUpAction, 1);
-      },
-
-      _onSpaceKeydown: function() {
-        this.uiDownAction();
-      },
-
-      _onSpaceKeyup: function() {
-        this.uiUpAction();
-      },
-
-      // note: holdDown does not respect noink since it can be a focus based
-      // effect.
-      _holdDownChanged: function(newVal, oldVal) {
-        if (oldVal === undefined) {
-          return;
-        }
-        if (newVal) {
-          this.downAction();
-        } else {
-          this.upAction();
-        }
-      }
-    });
-  })();
-Polymer({
-    is: 't-checkbox',
-
-    behaviors: [
-      // TODO: Paper behaviors add ripple. Remove them if we don't want ripples
-      Polymer.PaperInkyFocusBehavior
-    ],
-
-    hostAttributes: {
-      role: 'checkbox',
-      'aria-checked': false,
-      tabindex: 0
-    },
-
-    properties: {
-      
-      /**
-       * Put the checkmark on the right.
-       *
-       * @attribute checked
-       * @type boolean
-       * @default false
-       */
-       checkboxRight:{
-        type:Boolean,
-        value:false,
-        reflectToAttribute:true
-       },
-
-       /**
-       * Gets or sets the state, `true` is checked and `false` is unchecked.
-       *
-       * @attribute checked
-       * @type boolean
-       * @default false
-       */
-      checked: {
-        type: Boolean,
-        value: false,
-        reflectToAttribute: true,
-        notify: true,
-        observer: '_checkedChanged'
-      },
-
-      /**
-       * If true, the button toggles the active state with each tap or press
-       * of the spacebar.
-       *
-       * @attribute toggles
-       * @type boolean
-       * @default true
-       */
-      toggles: {
-        type: Boolean,
-        value: true,
-        reflectToAttribute: true
-      }
-    },
-
-    ready: function() {
-      if (Polymer.dom(this).textContent == '') {
-          this.$.checkboxLabel.hidden = true;
-        } else {
-          this.setAttribute('aria-label', Polymer.dom(this).textContent);
-        }
-        this._isReady = true;
-    },
-
-    // button-behavior hook
-    _buttonStateChanged: function() {
-      if (this.disabled) {
-          return;
-        }
-        if (this._isReady) {
-          this.checked = this.active;
-        }
-    },
-
-    _checkedChanged: function(checked) {
-      this.setAttribute('aria-checked', this.checked ? 'true' : 'false');
-      this.active = this.checked;
-      this.fire('checked-change');
-    },
-
-    _computeCheckboxClass: function(checked) {
-      if (checked) {
-        return 'checked';
-      }
-    },
-
-    _computeCheckmarkClass: function(checked) {
-      if (!checked) {
-        return 'hidden';
-      }
-    }
-  });
-Polymer({
-
-    is: 't-checkbox-group',
-
-    hostAttributes: {
-        role: 'checkboxgroup'
-    },
-
-    properties: {
-
-        /**
-         * Json list based checkbox group.
-         *
-         * @attribute checked
-         * @type boolean
-         * @default false
-         */
-        data: {
-            type: Array,
-            value: function() {
-                return [];
-            },
-            notify: true,
-            observer: '_dataChanged',
-            reflectToAttribute: true
-        },
-
-        /**
-         * Name property
-         */
-        name: {
-            type: String,
-            value: '',
-            reflectToAttribute: true
-        },
-
-        /**
-         * Sets the label of the group leave empty for no label
-         * @default ""
-         */
-        label: {
-            type: String,
-            value:"",
-            reflectToAttribute: true
-        },
-
-        /**
-         * Sets the boxes inline
-         * @default false
-         */
-        inline: {
-            type: Boolean,
-            value: false,
-            reflectToAttribute: true
-        },
-
-        /**
-         * Gets the array of selected values
-         * @attribute selected
-         * @type Array
-         * @default null
-         */
-        selectedValues: {
-            type: Array,
-            value: []
-        },
-
-        /**
-         * Sets the attribute selection
-         * @attribute selected
-         * @type String
-         * @default name
-         */
-        selectionAttribute: {
-            type: String,
-            value: 'name'
-        },
-
-        /* @attribute selected
-         * @type Array
-         * @default null
-         */
-        selectedItem: {
-            type: Array,
-            value: null,
-            notify: true,
-            reflectToAttribute: true,
-            observer: "_selectedChanged"
-        },
-
-        required: {
-            type: Boolean,
-            value: false
-        },
-
-        /**
-         * errorMsg is to put the error msg
-         */
-        errorMessage: {
-            type: String,
-            reflectToAttribute: true,
-            value: 'Please select atleast one value!'
-        },
-
-        /**
-         * Put the checkmark on the right.
-         *
-         * @attribute checked
-         * @type boolean
-         * @default false
-         */
-        checkboxRight: {
-            type: Boolean,
-            value: false,
-            reflectToAttribute: true
-        }
-
-
-
-    },
-
-    listeners: {
-        // TODO: this can be replaced by <iron-a11y-keys> when it's ready.
-        keydown: '_onKeyDown'
-    },
-
-    _dataChanged: function() {
-        if (this.data && this.data.length > 0) {
-            Polymer.dom(this.$.items).getDistributedNodes().forEach(function(element) {
-                element.remove();
-            });
-        }
-    },
-
-    _selectedChanged: function() {
-        // TODO: This only needs to be async while a domReady event is unavailable.
-        this.async(function() {
-            this._selectIndex(this._valueToIndex(this.items, this.selected));
-            this.fire('paper-checkbox-group-changed');
-        });
-    },
-
-    _onKeyDown: function(event) {
-        if (event.keyCode === 37 || event.keyCode == 38) {
-            // Up/Left key goes back.
-            this.selected = this._previousNode();
-        } else if (event.keyCode === 39 || event.keyCode == 40) {
-            // Down/Right key advances.
-            this.selected = this._nextNode();
-        } else {
-            event.preventDefault();
-        }
-    },
-
-    _selectIndex: function(index) {
-        if (index == this._selectedIndex)
-            return;
-        var nodes = this.items;
-        // If there was a previously selected node, deselect it.
-        if (nodes[this._selectedIndex]) {
-            nodes[this._selectedIndex].checked = false;
-        }
-        // Select a new node.
-        nodes[index].checked = true;
-        nodes[index].focus();
-        this._selectedIndex = index;
-    },
-
-    /**
-     * Returns an array of all items.
-     *
-     * @property items
-     * @type array
-     */
-    get items() {
-        return Polymer.dom(this.$.items).getDistributedNodes();
-    },
-
-    _nextNode: function() {
-        var items = this.items;
-        var index = this._selectedIndex;
-        var newIndex = index;
-        do {
-            newIndex = (newIndex + 1) % items.length;
-            if (newIndex === index) {
-                break;
-            }
-        } while (items[newIndex].disabled);
-        return this._valueForNode(items[newIndex]);
-    },
-
-    _previousNode: function() {
-        var items = this.items;
-        var index = this._selectedIndex;
-        var newIndex = index;
-        do {
-            newIndex = (newIndex || items.length) - 1;
-            if (newIndex === index) {
-                break;
-            }
-        } while (items[newIndex].disabled);
-        return this._valueForNode(items[newIndex]);
-    },
-
-    _valueForNode: function(node) {
-        return node["name"] || node.getAttribute("name");
-    },
-
-    // Finds an item with value == |value| and return its index.
-    _valueToIndex: function(items, value) {
-        for (var index = 0, node;
-            (node = items[index]); index++) {
-            if (this._valueForNode(node) == value) {
-                return index;
-            }
-        }
-        // If no item found, the value itself is probably the index.
-        return value;
-    },
-
-    validate: function() {
-        if (this.required && this.selectedValues.length == 0) {
-            this.classList.add('no-value');
-            return false;
-        }
-        this.classList.remove('no-value');
-        return true;
-    }
-
-});
-Polymer({
-    is: 't-radio-button',
-
-    behaviors: [
-      // TODO: Paper behaviors add ripple. Remove them if we don't want ripples
-      Polymer.PaperInkyFocusBehavior
-    ],
-
-    hostAttributes: {
-      role: 'radio',
-      'aria-checked': false,
-      tabindex: 0
-    },
-
-    properties: {
-       
-
-       /**
-       * Put the checkmark on the right.
-       *
-       * @attribute checked
-       * @type boolean
-       * @default false
-       */
-       radioRight:{
-        type:Boolean,
-        value:false,
-        reflectToAttribute:true
-       },
-
-      /**
-       * Gets or sets the state, `true` is checked and `false` is unchecked.
-       *
-       * @attribute checked
-       * @type boolean
-       * @default false
-       */
-      checked: {
-        type: Boolean,
-        value: false,
-        reflectToAttribute: true,
-        notify: true,
-        observer: '_checkedChanged'
-      },
-
-      /**
-       * If true, the button toggles the active state with each tap or press
-       * of the spacebar.
-       *
-       * @attribute toggles
-       * @type boolean
-       * @default true
-       */
-      toggles: {
-        type: Boolean,
-        value: true,
-        reflectToAttribute: true
-      }
-    },
-
-    ready: function() {
-      if (this.$.radioLabel.innerText == '') {
-        this.$.radioLabel.hidden = true;
-      } else {
-        this.setAttribute('aria-label', this.$.radioLabel.textContent);
-      }
-    },
-
-    _buttonStateChanged: function() {
-      if(this.active)
-        this.checked = this.active;
-    },
-
-    _checkedChanged: function() {
-      this.setAttribute('aria-checked', this.checked ? 'true' : 'false');
-      this.active = this.checked;
-      this.fire('iron-change');
-    }
-  });
-Polymer({
-    is: 't-radio-group',
-
-    behaviors: [
-        Polymer.IronA11yKeysBehavior
-    ],
-
-    hostAttributes: {
-        role: 'radiogroup',
-        tabindex: 0
-    },
-
-    properties: {
-
-        /**
-         * Put the checkmark on the right.
-         *
-         * @attribute checked
-         * @type boolean
-         * @default false
-         */
-        radioRight: {
-            type: Boolean,
-            value: false,
-            reflectToAttribute: true
-        },
-
-        /**
-         * Name property
-         */
-        name: {
-            type: String,
-            value: '',
-            reflectToAttribute: true
-        },
-
-        /**
-         * Sets the label of the group leave empty for no label
-         * @default ""
-         */
-        label: {
-            type: String,
-            value: "",
-            reflectToAttribute: true
-        },
-
-        /**
-         * Sets the boxes inline
-         * @default false
-         */
-        pillButton: {
-            type: Boolean,
-            value: false,
-            reflectToAttribute: true
-        },
-
-        /**
-         * Sets the boxes inline
-         * @default false
-         */
-        inline: {
-            type: Boolean,
-            value: false,
-            reflectToAttribute: true
-        },
-
-        hideLabel: {
-            type: Boolean,
-            computed:'_checkLabel(label)'
-        },
-
-        /**
-         * Gets or sets the selected element. Use the `name` attribute of the
-         * <t-radio-button> that should be selected.
-         *
-         * @attribute selected
-         * @type String
-         * @default null
-         */
-        selectedItem: {
-            type: String,
-            value: "0",
-            notify: true,
-            reflectToAttribute: true,
-            observer: "_selectedChanged"
-        },
-
-
-        /**
-         * Json list based Radio group.
-         *
-         * @attribute checked
-         * @type boolean
-         * @default false
-         */
-        data: {
-            type: Array,
-            value: function() {
-                return [];
-            },
-            notify: true,
-            observer: '_dataChanged',
-            reflectToAttribute: true
-        }
-    },
-
-    listeners: {
-        // TODO: this can be replaced by <iron-a11y-keys> when it's ready.
-        keydown: '_onKeyDown'
-    },
-
-
-    _checkLabel:function(label){
-        return this.label.length == 0;
-    },
-    _selectedChanged: function() {
-        // TODO: This only needs to be async while a domReady event is unavailable.
-        var component = this;
-        this.async(function() {
-            setTimeout(function() {
-
-                component._selectIndex(component._valueToIndex(component.items, component.selectedItem));
-                component.fire('t-radio-group-changed');
-            }, 0);
-        });
-    },
-
-    _dataChanged: function() {
-        if (this.data.length > 0) {
-            Polymer.dom(this.$.items).getDistributedNodes().forEach(function(element) {
-                element.remove();
-            });
-        }
-    },
-
-    _onKeyDown: function(event) {
-        if (event.keyCode === 37 || event.keyCode == 38) {
-            // Up/Left key goes back.
-            this.selectedItem = this._previousNode();
-        } else if (event.keyCode === 39 || event.keyCode == 40) {
-            // Down/Right key advances.
-            this.selectedItem = this._nextNode();
-        } else {
-            event.preventDefault();
-        }
-    },
-
-    /**
-     * Returns an array of all items.
-     *
-     * @property items
-     * @type array
-     */
-    get items() {
-        if (this.data.length > 0)
-            return this.querySelectorAll('t-radio-button');
-        return Polymer.dom(this.$.items).getDistributedNodes();
-    },
-
-    _nextNode: function() {
-        var items = this.items;
-        var index = this._selectedIndex;
-        var newIndex = index;
-        do {
-            newIndex = (newIndex + 1) % items.length;
-            if (newIndex === index) {
-                break;
-            }
-        } while (items[newIndex].disabled);
-        return this._valueForNode(items[newIndex]);
-    },
-
-    _previousNode: function() {
-        var items = this.items;
-        var index = this._selectedIndex;
-        var newIndex = index;
-        do {
-            newIndex = (newIndex || items.length) - 1;
-            if (newIndex === index) {
-                break;
-            }
-        } while (items[newIndex].disabled);
-        return this._valueForNode(items[newIndex]);
-    },
-
-    _selectIndex: function(index) {
-        if (index == this._selectedIndex)
-            return;
-        var nodes = this.items;
-        // If there was a previously selected node, deselect it.
-        if (nodes[this._selectedIndex]) {
-            nodes[this._selectedIndex].checked = false;
-        }
-        // Select a new node.
-        nodes[index].checked = true;
-        //nodes[index].focus();
-        this._selectedIndex = index;
-    },
-
-    _valueForNode: function(node) {
-        return node["name"] || node.getAttribute("name");
-    },
-
-    // Finds an item with value == |value| and return its index.
-    _valueToIndex: function(items, value) {
-        for (var index = 0, node;
-            (node = items[index]); index++) {
-            if (this._valueForNode(node) == value) {
-                return index;
-            }
-        }
-        // If no item found, the value itself is probably the index.
-        return value;
-    },
-
-    validate:function(){
-        return true;
-    }
-});
-Polymer({
-    is: 'paper-material',
-
-    properties: {
-      /**
-       * The z-depth of this element, from 0-5. Setting to 0 will remove the
-       * shadow, and each increasing number greater than 0 will be "deeper"
-       * than the last.
-       *
-       * @attribute elevation
-       * @type number
-       * @default 1
-       */
-      elevation: {
-        type: Number,
-        reflectToAttribute: true,
-        value: 1
-      },
-
-      /**
-       * Set this to true to animate the shadow when setting a new
-       * `elevation` value.
-       *
-       * @attribute animated
-       * @type boolean
-       * @default false
-       */
-      animated: {
-        type: Boolean,
-        reflectToAttribute: true,
-        value: false
-      }
-    }
-  });
-Polymer({
-
-      is: 'iron-icon',
-
-      properties: {
-
-        /**
-         * The name of the icon to use. The name should be of the form:
-         * `iconset_name:icon_name`.
-         */
-        icon: {
-          type: String,
-          observer: '_iconChanged'
-        },
-
-        /**
-         * The name of the theme to used, if one is specified by the
-         * iconset.
-         */
-        theme: {
-          type: String,
-          observer: '_updateIcon'
-        },
-
-        /**
-         * If using iron-icon without an iconset, you can set the src to be
-         * the URL of an individual icon image file. Note that this will take
-         * precedence over a given icon attribute.
-         */
-        src: {
-          type: String,
-          observer: '_srcChanged'
-        },
-
-        /**
-         * @type {!Polymer.IronMeta}
-         */
-        _meta: {
-          value: Polymer.Base.create('iron-meta', {type: 'iconset'}),
-          observer: '_updateIcon'
-        }
-
-      },
-
-      _DEFAULT_ICONSET: 'icons',
-
-      _iconChanged: function(icon) {
-        var parts = (icon || '').split(':');
-        this._iconName = parts.pop();
-        this._iconsetName = parts.pop() || this._DEFAULT_ICONSET;
-        this._updateIcon();
-      },
-
-      _srcChanged: function(src) {
-        this._updateIcon();
-      },
-
-      _usesIconset: function() {
-        return this.icon || !this.src;
-      },
-
-      /** @suppress {visibility} */
-      _updateIcon: function() {
-        if (this._usesIconset()) {
-          if (this._img && this._img.parentNode) {
-            Polymer.dom(this.root).removeChild(this._img);
-          }
-          if (this._iconName === "") {
-            if (this._iconset) {
-              this._iconset.removeIcon(this);
-            }
-          } else if (this._iconsetName && this._meta) {
-            this._iconset = /** @type {?Polymer.Iconset} */ (
-              this._meta.byKey(this._iconsetName));
-            if (this._iconset) {
-              this._iconset.applyIcon(this, this._iconName, this.theme);
-              this.unlisten(window, 'iron-iconset-added', '_updateIcon');
-            } else {
-              this.listen(window, 'iron-iconset-added', '_updateIcon');
-            }
-          }
-        } else {
-          if (this._iconset) {
-            this._iconset.removeIcon(this);
-          }
-          if (!this._img) {
-            this._img = document.createElement('img');
-            this._img.style.width = '100%';
-            this._img.style.height = '100%';
-            this._img.draggable = false;
-          }
-          this._img.src = this.src;
-          Polymer.dom(this.root).appendChild(this._img);
-        }
-      }
-
-    });
-(function() {
-
-      'use strict';
-
-      function classNames(obj) {
-        var classNames = [];
-        for (var key in obj) {
-          if (obj.hasOwnProperty(key) && obj[key]) {
-            classNames.push(key);
-          }
-        }
-
-        return classNames.join(' ');
-      }
-
-      Polymer({
-
-        is: 't-loader',
-
-        listeners: {
-          'animationend': 'reset',
-          'webkitAnimationEnd': 'reset'
-        },
-
-        properties: {
-
-          /**
-           * Displays the spinner.
-           *
-           * @attribute active
-           * @type boolean
-           * @default false
-           */
-          active: {
-            observer: 'activeChanged',
-            type: Boolean,
-            value: false
-          },
-
-          /**
-           * Alternative text content for accessibility support.
-           * If alt is present, it will add an aria-label whose content matches alt when active.
-           * If alt is not present, it will default to 'loading' as the alt value.
-           *
-           * @attribute alt
-           * @type string
-           * @default 'loading'
-           */
-          alt: {
-            observer: 'altChanged',
-            type: String,
-            value: 'loading'
-          },
-
-          /**
-           * True when the spinner is going from active to inactive. This is represented by a fade
-           * to 0% opacity to the user.
-           */
-          _coolingDown: {
-            value: false
-          },
-
-          _spinnerContainerClassName: {
-            computed: 'computeSpinnerContainerClassName(active, _coolingDown)'
-          }
-
-        },
-
-        computeSpinnerContainerClassName: function(active, _coolingDown) {
-          return classNames({
-            active: active || _coolingDown,
-            cooldown: _coolingDown
-          });
-        },
-
-        ready: function() {
-          // Allow user-provided `aria-label` take preference to any other text alternative.
-          if (this.hasAttribute('aria-label')) {
-            this.alt = this.getAttribute('aria-label');
-          } else {
-            this.setAttribute('aria-label', this.alt);
-          }
-
-          if (!this.active) {
-            this.setAttribute('aria-hidden', 'true');
-          }
-        },
-
-        activeChanged: function() {
-          if (this.active) {
-            this.removeAttribute('aria-hidden');
-          } else {
-            this._coolingDown = true;
-            this.setAttribute('aria-hidden', 'true');
-          }
-        },
-
-        altChanged: function() {
-          if (this.alt === '') {
-            this.setAttribute('aria-hidden', 'true');
-          } else {
-            this.removeAttribute('aria-hidden');
-          }
-
-          this.setAttribute('aria-label', this.alt);
-        },
-
-        reset: function() {
-          this.active = false;
-          this._coolingDown = false;
-        }
-
-      });
-
-    }());
-Polymer({
-
-    is: 't-autosuggest',
-
-    properties: {
-
-        /**
-         * Name property
-         */
-        name: {
-            type: String,
-            value: '',
-            reflectToAttribute: true
-        },
-
-        /**
-         * No label float is to make the label either on the body or on the top.
-         */
-        noLabelFloat: {
-            type: Boolean,
-            reflectToAttribute: true,
-            value: false,
-            observer: '_checkLabel'
-        },
-
-        /**
-         * Api url of the autosuggestion engine.
-         */
-        dataUrl: {
-            type: String,
-            value: '',
-            reflectToAttribute: true
-        },
-
-        /**
-         * Search parameter.
-         */
-        param: {
-            type: String,
-            value: "query",
-            reflectToAttribute: true
-        },
-
-        /**
-         * No matching result message.
-         */
-        emptyMessage: {
-            type: String,
-            value: "No matches found.",
-            reflectToAttribute: true
-        },
-
-        /**
-         * Selected value from the autosuggest.
-         */
-        selectedValue: {
-            type: String,
-            value: '',
-            notify: true,
-            observer:'_checkFloatedLabel',
-            reflectToAttribute: true
-        },
-
-        /**
-         * Selected item from the autosuggest.
-         */
-        selectedItem: {
-            type: Object,
-            // value:'test',
-            notify: true,
-            observer:'_selectedItemChanged',
-            value: function() {
-                return null;
-            }
-        },
-
-        /**
-         * Disable autosuggest.
-         */
-        disabled: {
-            type: Boolean,
-            value: false,
-            reflectToAttribute: true
-        },
-
-        /**
-         * Disable autosuggest.
-         */
-        isInvalid: {
-            type: Boolean,
-            value: false,
-            reflectToAttribute: true
-        },
-
-        /**
-         * Label of the autosuggest.
-         */
-        label: {
-            type: String,
-            value: "",
-            reflectToAttribute: true,
-            observer: '_checkLabel'
-        },
-
-        /**
-         * Put as required
-         */
-        required: {
-            type: Boolean,
-            value: false,
-            reflectToAttribute: true
-        },
-
-        /**
-         * Set to true to fire validations on blur
-         */
-        validateOnBlur: {
-            type: Boolean,
-            value: true
-        },
-
-        /**
-         * Token param
-         */
-        tokenParam: {
-            type: String,
-            value: "",
-            reflectToAttribute: true
-        },
-
-        /**
-         * errorMessage is to put the error msg
-         */
-        errorMessage: {
-            type: String,
-            reflectToAttribute: true,
-            value: 'Please select a value!'
-        },
-
-        invalidErrorMessage:{
-            type:String,
-            value:'Invalid value'
-        },
-
-        caching: {
-            type: Boolean,
-            reflectToAttribute: true,
-            value: false
-        },
-
-        subType: {
-            type: String,
-            value: ""
-        },
-
-        queryParams: {
-            type: String,
-            value: ""
-        },
-
-        minimumCharacters: {
-            type: Number,
-            value: 3
-        }
-
-    },
-    listeners:{
-        'tap':'simpleTap',
-        'clearButton.tap':'_clear'
-    },
-
-    attached: function() {
-        AutoComplete({
-            method: "POST"
-        }, this);
-        var component = this,
-        //to handle the scrolling position when focused
-        scrollTop;
-        this.$.autoSuggest.addEventListener('focus',function(){
-            function allFunction(){
-            //to scroll to top when focused for ios
-                scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
-                component.classList.add('focused');
-                document.body.scrollTop = document.documentElement.scrollTop = 0;
-            }
-            setTimeout(allFunction, 10);
-        });
-        this.$.autoSuggest.addEventListener('blur',function(){
-            function allFunction(){
-                Polymer.IronDropdownScrollManager.removeScrollLock(component);
-                if(component.required && component.validateOnBlur){
-                	component.validate();
-                }
-                if (component.selectedItem) { 
-                    component.selectedValue = component.selectedItem[component.tokenParam];
-            	}
-                component.classList.remove('focused');
-                component.$.dropBox.className = "autocomplete ";
-                component.$.spinner.hidden = true;
-                //to scroll to previous position when focusout
-                document.body.scrollTop = document.documentElement.scrollTop = scrollTop;
-                component.fire('blur');
-            }
-            setTimeout(allFunction, 10);
-        });
-    },
-
-    _cancel:function(){
-        if(this.lastSelectedItem){
-            this.selectedItem = this.lastSelectedItem;
-        }
-        this.$.autoSuggest.fire('blur');
-    },
-    _clear:function(event){
-        event.stopPropagation();
-        this.clear();
-    },
-
-    _onFocus: function(event) {
-        Polymer.IronDropdownScrollManager.pushScrollLock(this);
-        this.$.autoSuggest.select();
-        event.stopImmediatePropagation();
-        return false;
-    },
-
-    _checkLabel: function() {
-        this.placeholder = this.noLabelFloat ? this.label : "";
-    },
-
-    validate: function() {
-        if (this.required) {
-                if(!this.selectedValue == true ){
-                    this.classList.add('no-value');
-                    this.classList.remove('invalid-value');
-                }else{   
-                    if(this.isInvalid){
-                       this.classList.add('invalid-value');
-                        this.classList.remove('no-value');
-                        return false;
-                    }
-                }
-                if(!this.selectedValue == true || this.isInvalid)
-                {
-                    this.isInvalid = false;
-                    return false;
-                }
-            }
-            this.classList.remove('no-value');
-            this.classList.remove('invalid-value');
-        return true;
-    },
-
-    _closeLambda: function() {
-        var item = this;
-        this.$.dropBox.className = "autocomplete ";
-    },
-
-    _onClear: function(event){
-        this.selectedValue = "";
-        this.selectedItem = null;
-    },
-
-    _selectedItemChanged: function () {
-        if (this.selectedItem != undefined) { 
-            this.selectedValue = this.selectedItem[this.tokenParam];
-            this.validate();
-        }
-    },
-
-    _checkFloatedLabel: function() {
-        if (this.$.autoSuggest.value.length > 0) {
-            this.classList.add('label-is-floating');
-        } else {
-            this.classList.remove('label-is-floating');
-        }
-    },
-
-    simpleTap:function(e){
-        if (!e) var e = window.event;
-        e.cancelBubble = true;
-        if (e.stopPropagation) e.stopPropagation();
-    },
- 
-    clear: function() {
-        
-        this.classList.add('focused');     
-        this.selectedValue = "";
-        //this.selectedItem = null;
-        this.$.autoSuggest.value = "";
-        this.classList.remove('label-is-floating');
-    }
-});
-Polymer({
-    is: 't-colorpicker',
-
-    properties: {
-    
-    /**
-     * Name property
-    */
-    name: {
-      type: String,
-      value: '',
-      reflectToAttribute: true
-    },
-    
-      /**
-      *label:  Text
-      */
-      label: {
-        type:String,
-        reflectToAttribute:true,
-        value:'Pick a color'
-      },
-
-      /**
-       * No label float is to make the label either on the body or on the top.
-       */
-      noLabelFloat: {
-        type:Boolean,
-        reflectToAttribute:true,
-        value:false
-      },
-    
-      /**
-       * The initial color will be set with the color option. If you don't pass in a color, Spectrum will use the value attribute on the input.
-  The color parsing is based on the TinyColor plugin. This should parse any color string you throw at it.
-       */
-      color: {
-        type:String,
-        value:'#000000',
-        observer:'_hasColor'
-      },
-
-      /**
-       * Flat This means that it will always show up at full size, and be positioned as an inline-block element. Look to the left for a full sized flat picker.
-       */
-      flat: {
-        type:Boolean,
-        value:false
-      },
-
-
-      /**
-       * You can add an input to allow free form typing. The color parsing is very permissive in the allowed strings. See TinyColor for more details.
-       */
-      showInput: {
-        type:Boolean,
-        value:true  
-      },
-
-
-      /**
-       * Spectrum can show the color that was initially set when opening. This provides an easy way to click back to what was set when opened.
-       */
-      showInitial: {
-        type:Boolean,
-        value:true  
-      },
-
-
-      /**
-       * If you specify both the showInput, showInitial, and allowEmpty options, the CSS keeps things in order by wrapping the buttons to the bottom row, and shrinking the input. Note: this is all customizable via CSS.
-       */
-      allowEmpty: {
-        type:Boolean,
-        value:false
-      },
-
-
-      /**
-       * You can allow alpha transparency selection.
-       */
-      showAlpha: {
-        type:Boolean,
-        value:true
-      },
-
-
-      /**
-       * Spectrum can be automatically disabled if you pass in the disabled flag. Additionally, if the input that you initialize spectrum on is disabled, this will be the default value. Note: you cannot enable spectrum if the input is disabled (see below).
-       */
-      disabled: {
-        type:Boolean,
-        value:false,
-        reflectToAttribute:true,
-        notify:true,
-        observer:'_changeState'
-      },
-
-
-      /**
-       * If the localStorageKey option is defined, the selection will be saved in the browser's localStorage object
-       */
-      localStorageKey: {
-        type:String
-      },
-
-
-      /**
-       * Spectrum can show a palette below the colorpicker to make it convenient for users to choose from frequently or recently used colors. When the colorpicker is closed, the current color will be added to the palette if it isn't there already.
-       */
-      showPalette: {
-        type:Boolean,
-        value:false
-      },
-
-
-      /**
-       * If you'd like, spectrum can show the palettes you specify, and nothing else.
-       */
-      showPaletteOnly: {
-        type:Boolean,
-        value:false
-      },
-
-
-      /**
-       *Spectrum can show a button to toggle the colorpicker next to the palette. This way, the user can choose from a limited number of colors in the palette, but still be able to pick a color that's not in the palette.
-       */
-      togglePaletteOnly: {
-        type:Boolean,
-        value:false
-      },
-
-      /**
-       *You can have the colorpicker automatically hide after a palette color is selected.
-       */
-      hideAfterPaletteSelect: {
-        type:Boolean,
-        value:false
-      },
-
-      /**
-       * Spectrum can keep track of what has been selected by the user with the showSelectionPalette option..
-       */
-      showSelectionPalette: {
-        type:Boolean,
-        value:true
-      },
-
-
-      /**
-       * When clicking outside of the colorpicker, you can force it to fire a change event rather than having it revert the change. This is true by default.
-       */
-      clickoutFiresChange: {
-        type:Boolean,
-        value:true
-      },
-
-
-      /**
-       * You can set the button's text using cancelText and chooseText properties.
-       */
-      cancelText: {
-        type:String,
-        value: "cancelText"
-      },
-
-
-      /**
-       * You can set the button's text using cancelText and chooseText properties.
-       */
-      appendTo: {
-        type:String,
-        value: "#colorContainer"
-      },
-
-      /**
-       * You can set the button's text using cancelText and chooseText properties.
-       */
-      chooseText: {
-        type:String,
-        value: "chooseText"
-      },
-
-
-      /**
-       * You can also change the text on the Toggle Button with the options togglePaletteMoreText (default is "more") .
-       */
-      togglePaletteMoreText: {
-        type:String,
-        value:'more'
-      },
-
-
-      /**
-       * You can also change the text on the Toggle Button with the options togglePaletteLessText (default is "less").
-       */
-      togglePaletteLessText: {
-        type:String,
-        value:'less'
-      },
-
-
-      /**
-       * You can add an additional class name to the just the container element using the containerClassName property.
-       */
-      containerClassName: {
-        type:String
-      },
-
-
-      /**
-       * You can add an additional class name to just the replacer element using the replacerClassName property.
-       */
-      replacerClassName: {
-        type:String
-      },
-
-
-      /**
-       * You can set the format that is displayed in the text box. This will also change the format that is displayed in the titles from the palette swatches.
-       "hex","hex3","hsl","rgb","name", and none 
-       */
-      preferredFormat: {
-        type:String,
-        value:"hex"
-      },
-
-
-      /**
-       * This is how many elements are allowed in the selectionPallete at once.
-  Elements will be removed from the palette in first in - first out order if this limit is reached.
-       */
-      maxSelectionSize:{
-        type:Number
-      },
-
-
-      /**
-       * This attribute will put the format of the date selected in the place holder.
-       */
-      palette:{
-        type:Array
-      },
-
-
-      /**
-       * The default values inside of the selection palette. Make sure that showSelectionPalette and showPalette are both enabled.
-       */
-      selectionPalette: {
-        type:Array
-      },
-
-      /**
-       * The default values inside of the selection palette. Make sure that showSelectionPalette and showPalette are both enabled.
-       */
-      value: {
-        type:String,
-        value:"",
-        reflectToAttribute:true,
-        notify:true
-      }
-
-    },
-
-    attached:function(){
-      this._initiate();
-    },
-
-    ready:function(){
-      this._initiate();
-    },
-
-    _hasColor:function(){
-      if(this.color.length>0){
-        this.value = this.color;
-      }
-      this._initiate();
-    },
-    //to initiate the color picker...    
-    _initiate: function(){
-
-      var component = this;
-
-      var pickerSettings={
-
-          color: this.color,
-
-          flat: this.flat,
-
-          showInput: this.showInput,
-
-          hideAfterPaletteSelect: this.hideAfterPaletteSelect,
-
-          showInitial: this.showInitial,
-
-          allowEmpty: this.allowEmpty,
-
-          showAlpha: this.showAlpha,
-
-          disabled: this.disabled,
-
-          localStorageKey: this.localStorageKey,
-
-          showPalette: this.showPalette,
-
-          showPaletteOnly: this.showPaletteOnly,
-
-          togglePaletteOnly: this.togglePaletteOnly,
-
-          showSelectionPalette: this.showSelectionPalette,
-
-          clickoutFiresChange: this.clickoutFiresChange,
-
-          appendTo: this.appendTo,
-
-          togglePaletteMoreText: this.togglePaletteMoreText,
-
-          togglePaletteLessText: this.togglePaletteLessText,
-
-          containerClassName: this.containerClassName,
-
-          replacerClassName: this.replacerClassName,
-
-          preferredFormat: this.preferredFormat,
-
-          maxSelectionSize: this.maxSelectionSize,
-
-          palette: this.palette,
-
-          selectionPalette: this.selectionPalette,
-
-          change: function(color) {
-              //this.fire('color-selected');
-              
-          },
-
-          move: function(color) {
-              //this.fire('color-changed');
-          },
-
-          hide: function(color) {
-            component.value = $(this).val();
-            component.fire('color-selected');
-            /*if(component.noLabelFloat && component.value.length>0){
-              $('#label').hide();
-            }*/
-          }
-          
-      };
-      //console.log($(this.$.color))
-      $(this.$.color).spectrum(pickerSettings)
-      //alert(1);
-      //this._instance = this._input.spectrum(pickerSettings);
-      //this.picker = this._input.spectrum('picker');
-    },
-
-    show: function(){
-      $(this.$.color).spectrum('show');
-    },
-
-    /*
-    * Private method to clear the value
-    */
-    hide: function(){
-      $(this.$.color).spectrum('hide');
-    },
-
-    /*
-    * Public method to toggle the picker
-    */
-    toggle: function(){
-      $(this.$.color).spectrum('toggle');
-    },
-
-    /*
-    * Private method to toggle the state of the picker
-    */
-    _changeState: function(){
-      if(this.disabled){
-        $(this.$.color).spectrum('disable');
-      }else{
-        $(this.$.color).spectrum('enable');
-      }
-    },
-
-    /**
-     * Function to validate if the date is selected
-     */
-     
-    validate:function(){
-      return true;
-    }
-
-  });
-Polymer({
-    is: 't-calendar',
-
-    properties: {
-
-        
-        /**
-         * Check is the component is required
-         */
-         required:Boolean,
-        
-        /**
-         * This attribute will return the selected date
-         */
-        selectedDate: {
-            type: String,
-            value: '',
-            reflectToAttribute: true,
-            notify: true,
-            observer: '_floatedLabel'
-        },
-
-        /**
-         * errorMessage is to put the error msg
-         */
-        errorMessage: {
-            type: String,
-            reflectToAttribute: true,
-            value: 'Please select a date!'
-        },
-
-        /**
-         * This attribute will put the format of the date selected in the place holder.
-         *@default: dddd, dd mmm, yyyy
-         */
-        format: {
-            type: String,
-            value: 'dddd, dd mmm, yyyy',
-            reflectToAttribute: true,
-            notify: true
-        },
-
-
-        /**
-         * This attribute will put the submit format of the date selected in the place holder.
-         *@default: yyyy,mm,dd
-         */
-        submitFormat: {
-            type: String,
-            value: 'yyyy,mm,dd',
-            notify: true
-        },
-
-        /**
-         * Pass the array of dates to be disabled
-         *@default: null
-         */
-        disabledDates: {
-            type: Array,
-            value: function() {
-                return null;
-            },
-            notify: true,
-            observer: '_setDisableDates'
-        },
-
-      
-        /**
-         * picker object will help you pass further methods
-         */
-        picker: Object,
-
-        _input: Object,
-
-        /**
-         * This is an object to put further methods on it.
-         */
-        _instance: Object,
-
-        /**
-         * This is an object to put further methods on it.
-         */
-        isDob: {
-            type: Boolean,
-            value: false,
-            reflectToAttribute: true,
-            observer: '_manageRange'
-        },
-
-        min: {
-            type: Object,
-            value: function() {
-                return null;
-            },
-            notify: true
-
-        },
-
-        max: {
-            type: Object,
-            value: function() {
-                return null;
-            },
-            notify: true
-        },
-
-        _date: {
-            type: Object,
-            notify: true,
-            observer: '_dateFromObject'
-        },
-
-        /**
-         * Set to true to disable the floating label. The label disappears when the input value is
-         * not null.
-         */
-        noLabelFloat: {
-            type: Boolean,
-            value: false
-        },
-
-        /**
-         * True if the input is invalid. This property is set automatically when the input value
-         * changes if auto-validating, or when the `iron-input-valid` event is heard from a child.
-         */
-        invalid: {
-            type: Boolean,
-            reflectToAttribute:true,
-            value: false
-        },
-
-        /**
-         * The label for this input. If you're using PaperInputBehavior to
-         * implement your own paper-input-like element, bind this to
-         * `<label>`'s content and `hidden` property, e.g.
-         * `<label hidden$="[[!label]]">[[label]]</label>` in your `template`
-         */
-        label: {
-            type: String,
-            value: 'Select Date'
-        },
-    },
-
-    attached: function() {
-        this._initiate();
-        this._changeMinMax();
-        this.$.inputContainer.fireBlur = false;
-    },
-
-    _getMinMax: function() {
-        var range = {};
-        range.min = (this.min === null) ? true : this.min;
-        range.max = (this.max === null) ? false : this.max;
-
-        return range;
-    },
-
-    _dateFromObject: function() {
-        if (this.picker !== undefined) {
-            this.picker.set('select', this._date);
-            this.selectedDate = this.picker.get('select', this.format);
-        }
-    },
-
-    _changeMinMax: function() {
-        if (!this.min) {
-            this.min = new Date();
-            this.min.setFullYear(this.min.getFullYear() - 120);
-            if (this.max !== null) this.picker.set('max', this.max);
-        } else {
-            this.picker.set('min', this.min);
-            if (this.max !== null) this.picker.set('max', this.max);
-        }
-    },
-
-
-    //to initiate the date picker...  
-
-    _initiate: function() {
-        this._input = $(this.$.input);
-        var component = this;
-        // component.disabledDates=[[2015,8,12]];
-
-        var pickerSettings = {
-            component: this,
-            labelMonthNext: 'Go to the next month',
-            labelMonthPrev: 'Go to the previous month',
-            labelMonthSelect: 'Pick a month from the dropdown',
-            labelYearSelect: 'Pick a year from the dropdown',
-            weekdaysShort: ['S', 'M', 'T', 'W', 'T', 'F', 'S'],
-            today: "",
-            clear: "",
-            close: "",
-            //selectMonths: true,
-            //selectYears: true,
-            format: component.format,
-            closeOnSelect: true,
-            selectMonths: component.isDob,
-            onOpen: function() {
-                component.opened  = true;
-            },
-            onClose: function() {
-                component.opened = false;
-                component.selectedDate = component.$.input.value;
-                $(document.activeElement).blur();
-                component.validate();
-                /*;
-                if (component._input.val() !== "") {
-                    component._input.addClass('yes-value').siblings('i').addClass('active');
-                } else {
-                    component._input.removeClass('yes-value').siblings('i').removeClass('active');
-                }*/
-            }
-        };
-
-        var range = this._getMinMax();
-        pickerSettings.selectYears = this.isDob ? 110 : false;
-        pickerSettings.min = range.min;
-        pickerSettings.max = range.max;
-        this._instance = this._input.pickadate(pickerSettings);
-        this.picker = this._input.pickadate('picker');
-    },
-
-    _setDisableDates: function() {
-        if (this.picker !== undefined) this.picker.set('disable', this.disabledDates);
-    },
-
-    _manageRange: function() {
-        var currentDate = new Date();
-        if (this.isDob) {
-
-            this.max = new Date();
-            this._initiate();
-        }
-    },
-
-    /*
-     * Private method to clear the value
-     */
-    _clear: function() {
-        this.picker.clear();
-        this.selectedDate = "";
-        this.$.input.value = "";
-    },
-
-
-    /*
-     * Private method to clear the value
-     */
-    _floatedLabel: function(newValue, oldValue) {
-        /*if (this.selectedDate.length > 0) {
-            this.classList.add('label-is-floating');
-        } else {
-            this.classList.remove('label-is-floating');
-        }
-*/
-        //component load condition
-        //patch ATOM-501 added picker as a condition
-        if (!this.picker) {
-            return;
-        }
-        if (!newValue && !oldValue) {
-            return;
-        }
-        //break loop condition 
-        if (newValue && oldValue && newValue == oldValue)
-            return;
-
-        this.picker.set('select', newValue, {
-            format: this.format
-        });
-
-    },
-    /**
-     * Function to validate if the date is selected
-     */
-    validate: function() {
-        if (this.required) {
-            if (this.selectedDate && this.selectedDate.length > 0) {
-                $(this).find('t-input-container').removeClass('invalid-input');
-                this.invalid = false;
-                return true;
-            }
-                $(this).find('t-input-container').addClass('invalid-input');
-                this.invalid = true;
-            return false;
-        }
-    }
-
-});
-Polymer({
-    is: 'paper-button',
-
-    behaviors: [
-      Polymer.PaperButtonBehavior
-    ],
-
-    properties: {
-      /**
-       * If true, the button should be styled with a shadow.
-       */
-      raised: {
-        type: Boolean,
-        reflectToAttribute: true,
-        value: false,
-        observer: '_calculateElevation'
-      }
-    },
-
-    _calculateElevation: function() {
-      if (!this.raised) {
-        this._setElevation(0);
-      } else {
-        Polymer.PaperButtonBehaviorImpl._calculateElevation.apply(this);
-      }
-    }
-    /**
-
-    Fired when the animation finishes.
-    This is useful if you want to wait until
-    the ripple animation finishes to perform some action.
-
-    @event transitionend
-    @param {{node: Object}} detail Contains the animated node.
-    */
-  });
-Polymer({
-      is: 'paper-icon-button',
-
-      hostAttributes: {
-        role: 'button',
-        tabindex: '0'
-      },
-
-      behaviors: [
-        Polymer.PaperInkyFocusBehavior
-      ],
-
-      properties: {
-        /**
-         * The URL of an image for the icon. If the src property is specified,
-         * the icon property should not be.
-         */
-        src: {
-          type: String
-        },
-
-        /**
-         * Specifies the icon name or index in the set of icons available in
-         * the icon's icon set. If the icon property is specified,
-         * the src property should not be.
-         */
-        icon: {
-          type: String
-        },
-
-        /**
-         * Specifies the alternate text for the button, for accessibility.
-         */
-        alt: {
-          type: String,
-          observer: "_altChanged"
-        }
-      },
-
-      _altChanged: function(newValue, oldValue) {
-        var label = this.getAttribute('aria-label');
-
-        // Don't stomp over a user-set aria-label.
-        if (!label || oldValue == label) {
-          this.setAttribute('aria-label', newValue);
-        }
-      }
-    });
-Polymer({
-
-    is: 't-button',
-
-    properties: {
-
-      /**
-       * If true, the button will be a paper icon button
-       */
-      onlyIcon:{
-        type: Boolean,
-        value:false,
-        reflectToAttribute:true
-      },
-
-      /**
-       * To pass the src of a custom image only for icon btn
-       */
-      icoSrc:{
-        type: String
-      },
-
-      /**
-       * Button label
-       */
-      label:{
-        type: String,
-        value:'',
-        reflectToAttribute : true
-      },
-
-      /**
-       * To check if theres an icon
-       */
-      hasIcon:{
-        type: Boolean,
-        value:false,
-        reflectToAttribute:true
-      },
-
-      /**
-       * Ink effect on button
-       */
-      noink:{
-        type: Boolean,
-        value:false,
-        reflectToAttribute:true
-      },
-
-      /**
-       * If true, the button will toggle the active attribute.
-       */
-      toggles:{
-        type: Boolean,
-        reflectToAttribute:true,
-        value:false
-      },
-      
-      /**
-       * If true, the button should be styled with a shadow.
-       */
-      raised: {
-        type: Boolean,
-        reflectToAttribute: true,
-        value: false
-      },
-
-      /**
-       * If true, the button will be disabled.
-       */
-      disabled: {
-        type: Boolean,
-        reflectToAttribute: true,
-        value: false
-      },
-
-      /**
-       * The value of icon
-       */
-      ico :{
-        type: String,
-        reflectToAttribute:true,
-        notify:true,
-        observer:'_checkIcon'
-      },
-
-      /**
-       * If true, the icon will appear in the left.
-       */
-      iconLeft:{
-        type: Boolean,
-        reflectToAttribute: true,
-        value: false
-      }
-
-    },
-
-    _checkIcon: function(ico){
-      if(this.ico == '')
-        this.removeAttribute('ico');
-      this.hasIcon = this.hasAttribute('ico');
-    }
-
-  });
-Polymer({
-
-    is: 't-stepper',
-
-    properties: {
-
-        /**
-       * Stepper label
-       */
-        singularLabel:{
-          type: String,
-          value:'',
-          reflectToAttribute : true,
-          observer:'_setLabel'
-        },
-
-        _label:{
-          type: String,
-          value:''
-        },
-
-        pluralLabel:{
-          type: String,
-          value:'',
-          reflectToAttribute : true,
-          observer:'_setLabel'
-        },
-
-        secondaryLabel:{
-          type: String,
-          value:'',
-          reflectToAttribute : true,
-          observer:'_setLabel'
-        },
-
-        min:{
-          type:Number,
-          value:0,
-          reflectToAttribute : true,
-          observer:'getMin'
-        },
-
-        max:{
-          type:Number,
-          value:1,
-          reflectToAttribute : true,
-          notify:true,
-          observer:'_maxChanged'
-        },
-
-        count:{
-          type:Number,
-          value:'',
-          notify:true,
-          observer:'_setLabel'
-        },
-        /**
-       * The value of icon
-       */
-        ico :{
-          type: String,
-          reflectToAttribute:true,
-          notify:true,
-          observer:'_checkIcon'
-        },
-
-        /**
-       * To check if it is styled
-       */
-        styled:{
-          type: Boolean,
-          value:false,
-          reflectToAttribute:true
-        },
-
-        /**
-       * To check if theres an icon
-       */
-        hasIcon:{
-          type: Boolean,
-          value:false,
-          reflectToAttribute:true
-        },
-
-        /**
-       * To check if theres an icon
-       */
-        disableMinus:{
-          type: Boolean,
-          value:false,
-          reflectToAttribute:true,
-          computed:'checkDisableMinus(count,min)'
-        },
-
-        /**
-       * To check if plus
-       */
-        disablePlus:{
-          type: Boolean,
-          value:false,
-          reflectToAttribute:true,
-          computed:'checkDisableAdd(count,max)'
-        }
-
-
-    },
-
-    attached: function(){
-      this._setLabel();
-    },
-
-    getMin:function(min){
-      this.count = this.min;
-    },
-
-    _checkIcon: function(ico){
-      if(this.ico == '')
-        this.removeAttribute('ico');
-      this.hasIcon = this.hasAttribute('ico');
-    },
-
-    addTap:function(){
-      if(this.count < this.max) {
-        this.count++;
-      }    
-    },
-
-    minusTap:function(){
-      if(this.count > this.min) {
-        this.count--;
-      }
-    },
-
-    _setLabel: function(){
-        switch(this.count) {
-            case 0:
-                this._label = this.pluralLabel;
-                break;
-            case 1:
-                this._label =  this.singularLabel;
-                break;
-            default :
-                this._label = this.pluralLabel;
-        }
-    },
-
-    checkDisableMinus:function(count,min){
-      return count == min;
-    },
-
-    checkDisableAdd:function(count,max){
-      return count == max;
-    },
-
-    _maxChanged: function(){
-      if(this.max < this.count)
-        this.count = this.min;
-    },
-
-    validate:function(){
-      return true;
-    }
-}) ;
-Polymer({
-
-    is: 't-notify',
-
-    properties: {
-
-        active:{
-            type: Boolean,
-            reflectToAttribute: true,
-            value: false
-        },
-
-        type:{
-            type: String,
-            reflectToAttribute: true,
-            value: 'error'
-        },
-
-        message: {
-            type: String,
-            value: ''
-        }
-        /*,
-        data: {
-            type: Array,
-            value: function() {
-                return [];
-            },
-            notify: true,
-            reflectToAttribute: true,
-            observer:'_checkdata'
-        },
-        onlyHead:{
-            type:Boolean,
-            value:false,
-            notify: true
-        }*/
-    }
-
-});
-Polymer({
-      is: 'paper-item',
-
-      behaviors: [
-        Polymer.PaperItemBehavior
-      ]
-    });
-Polymer({
-
-    is: 't-form',
-
-    properties: {
-
-        /**
-         * heading of the form.
-         */
-        name: {
-            type: String,
-            value: 'untitled-form',
-            reflectToAttribute: true
-        },
-
-        /**
-         * NodeList of all fields present in the form.
-         */
-        fields: {
-            type: Array,
-            value: function() {
-                return [];
-            },
-            notify: true,
-
-        },
-
-        /**
-         * Response object of the form.
-         */
-        response: {
-            type: Object,
-            value: function() {
-                return {};
-            }
-        },
-
-        /**
-         * heading of the form.
-         */
-        heading: {
-            type: String,
-            value: 'Untitled Form',
-            reflectToAttribute: true
-        },
-
-        actionButton: {
-            type: String,
-            value: 'Left',
-            notify: true,
-            reflectToAttribute: true,
-            observer: '_positionButton'
-        },
-
-        submitButtonLabel: {
-            type: String,
-            value: 'Submit',
-            reflectToAttribute: true
-        },
-
-        secondaryActionLabel: {
-            type: String,
-            value: 'Cancel',
-            reflectToAttribute: true
-        },
-
-        labelPosition: {
-            type: String,
-            value: 'Top',
-            reflectToAttribute: true,
-            notify: true,
-            observer: '_labelTypeChanged'
-        },
-
-        _fieldsNotPresent: {
-            type: Boolean,
-            value: true,
-            computed: '_fieldsPresent(fields)'
-        },
-
-        errorMessage: {
-            type: String,
-            reflectToAttribute: true
-        },
-
-        errorBlock: {
-            type: Boolean,
-            value: false,
-            reflectToAttribute: true
-        },
-
-        showLoader:{
-            type:Boolean,
-            value:false,
-            reflectToAttribute:true
-        }
-    },
-
-    ready: function() {
-        var component = this;
-        this.addEventListener('tab-next', function(event) {
-            var next =event.target.tabIndex + 1;
-            component.fields[next].focus();
-        });
-    },
-
-    attached: function(){
-        this.setFields();
-    },
-
-    _fieldsPresent: function() {
-        return this.fields == undefined || this.fields.length == 0;
-    },
-
-    _setResponse: function(field) {
-        var fieldName = field.getAttribute("name");
-        switch (field.is) {
-
-            case "t-checkbox-group":
-                this.response[fieldName] = field.selectedValues;
-                break;
-
-            case "t-checkbox":
-                this.response[fieldName] = field.checked;
-                break;
-
-            case "t-radio-group":
-                this.response[fieldName] = field.selectedItem;
-                break;
-
-            case "t-autosuggest":
-                this.response[fieldName] = field.selectedItem;
-                break;
-
-            case "t-calendar":
-                this.response[fieldName] = field.selectedDate;
-                break;
-
-            case "t-colorpicker":
-                this.response[fieldName] = field.value;
-                break;
-
-            case "t-input":
-                this.response[fieldName] = field.value;
-                break;
-
-            case "t-stepper":
-                this.response[fieldName] = field.count;
-                break;
-
-            case "t-email-input":
-                this.response[fieldName] = field.value;
-                break;
-
-            case "t-phone-input":
-                this.response[fieldName] = field.formattedValue;
-                break;
-
-            default:
-                console.log('Add  switch case for ' + field.is + ' in t-form.html in t-components.')
-
-        }
-    },
-
-    _validate: function(field) {
-        var isValid = true;
-        /* var notifyEle = document.querySelector('#notify');*/
-        /*var data = [];*/
-        this.fields.forEach(function(field) {
-            if (field.validate() != undefined) {
-                isValid = isValid && field.validate();
-                /*if(!field.validate()){
-                    data.push(field.errorMessage);
-                }*/
-            }
-        });
-        /*notifyEle.active = !isValid;*/
-        /*notifyEle.data = data;*/
-        return isValid;
-    },
-
-    setFields: function() {
-        var content = Polymer.dom(this.$.fields).getDistributedNodes();
-        var component = this;
-        component.fields = [];
-        content.forEach(function(section) {
-            component._pushFields(section.querySelectorAll("[name]"));
-        });
-    },
-
-    _pushFields: function(components) {
-        var fields = [];
-        if (components.length > 0) {
-            for(var index=0; index< components.length ; index++)
-            {
-                components[index].setAttribute('tabIndex', index);
-                if(components[index].is != 't-radio-button')
-                    fields.push(components[index]);
-            }
-            this.fields = this.fields.concat(fields);
-        }
-    },
-
-    _labelTypeChanged: function() {
-        this.setFields(Polymer.dom(this.$.fields).getDistributedNodes());
-        switch (this.labelPosition) {
-            case 'Left':
-
-                break;
-
-            case 'Right':
-                break;
-
-            case 'Top':
-                this.fields.forEach(function(field) {
-                    field.noLabelFloat = false;
-                });
-                break;
-
-            case 'Inline':
-                this.fields.forEach(function(field) {
-                    field.noLabelFloat = true;
-                });
-                break;
-        }
-    },
-
-    _positionButton: function() {
-        var classes = "layout horizontal ";
-        switch (this.actionButton) {
-            case 'Full':
-                this.$.submit.classList.add('flex');
-                break;
-
-            case 'Right':
-                this.$.submit.classList.remove('flex');
-                this.$.actionContainer.classList.remove('justified');
-                this.$.actionContainer.classList.add('end-justified');
-                break;
-
-            case 'Left':
-                this.$.submit.classList.remove('flex');
-                this.$.actionContainer.classList.add('justified');
-                break;
-            
-            case 'Center':
-                this.$.submit.classList.remove('flex');
-                this.$.actionContainer.classList.add('center-justified');
-                break;
-        }
-        return classes;
-    },
-
-    submit: function() {
-        var component = this;
-        this.setFields(Polymer.dom(component.$.fields).getDistributedNodes());
-        if (component._validate()) {
-            component.fields.forEach(function(field) {
-                component._setResponse(field);
-            });
-
-            component.fire('on-form-submit', component.response);
-        }
-    }
-});
-Polymer({
-    is: 't-air-search',
-    properties: {
-
-        /**
-         * The location to search from.
-         * Must be a value picked from suggested locations?.
-         */
-        DepartureAirport: String,
-
-        /**
-         * The location of arrival.
-         * Must be a value picked from suggested locations?.
-         */
-        ArrivalAirport: {
-            type:String,
-            observer:'_validateDestinations'
-        },
-        /**
-         * The date of departure.
-         */
-        DepartureDate: {
-            type: String,
-            value: '',
-            notify: true,
-            observer: '_travelDateChanged'
-        },
-
-        /**
-         * The date of returning back to the departure location
-         * __if__ the type of trip is _Round Trip_
-         */
-        ArrivalDate: {
-            type: String,
-            value: '',
-            notify: true,
-            observer: '_returnDateChanged'
-        },
-
-        /**
-         * The value of adults selected.
-         */
-        adult: {
-            type: Number,
-            value: 1
-        },
-
-        /**
-         * The value of children selected.
-         */
-        child: {
-            type: Number,
-            value: 0
-        },
-
-        /**
-         * The value of infants selected.
-         */
-        infant: {
-            type: Number,
-            value: 0
-        },
-
-        /**
-         * The maximum number of children allowed for travel
-         */
-        _maxChildren: {
-            type: Number,
-            notify: true,
-            value: 6
-        },
-
-        /**
-         * The maximum number of infants allowed for travel
-         */
-        _maxInfants: {
-            type: Number,
-            notify: true,
-            value: 1
-        },
-
-        /**
-         * The api url that returns suggestions (auto suggest) shown in
-         * departure and arrival airport fields
-         */
-        suggestionUrl: String,
-
-        /**
-         * The error message that will be shown to the user
-         */
-        error: {
-            type: String,
-            value: ''
-        },
-
-        /**
-         * The type of trip, possible values are _Round Trip_ and _One Way_
-         */
-        itineraryType: {
-            type: String,
-            value: 'RoundTrip',
-            reflectToAttribute: true,
-            notify: true,
-            observer: '_tripTypeChanged'
-        },
-
-        /**
-         * Controls how the search happens, if the value of this is set to
-         * 'event' then it raises a event which can be handled by the consumer
-         * of this component to do search. In another case if the value is
-         * set to `url` then search will be done by opening the deep link
-         * url.
-         */
-        searchType: {
-            type: String,
-            value: 'event',
-            reflectToAttribute: true
-        },
-
-        /**
-         * Check if the type of trip is _Round Trip_
-         */
-        _isRoundTrip: {
-            type: Boolean,
-            computed: '_tripTypeChanged(itineraryType)'
-        },
-
-        /**
-         * The url that will used for searching if `searchType` is set to `url`.
-         * The initial * value should be set to the search api url, this initial
-         * value be used to construct the deep link url by appending
-         * query parameters to it.
-         */
-        deeplinkUrl: {
-            type: String,
-            value: '',
-            reflectToAttribute: true
-        },
-
-        /**
-         * The query parameter for autosuggest to work. This is token to pass with the request for * autosuggest.
-         */
-        queryParams: {
-            type: String,
-            value: ""
-        },
-
-        /**
-         * The type of cabin, example values are _Economy_ and _Business_
-         */
-        cabinType: {
-            type: String,
-            value: "Economy"
-        },
-
-    },
-
-    attached: function() {
-        var component = this;
-        this.async(function() {
-            // access sibling or parent elements here
-            var startDate = new Date();
-            startDate.setDate(startDate.getDate() + 3);
-            this.$.departureDate.picker.set('min', startDate);
-        });
-        this.addEventListener('on-form-submit', function(event) {
-            component.search(event.detail);
-        });
-    },
-
-    _tripTypeChanged: function (tripType) {
-        if (this.itineraryType !== undefined) {
-            if (this.itineraryType === 'RoundTrip') {
-                this._travelDateChanged();
-                return false;
-            }
-            else {
-                if(this.$.departureDate.picker !== undefined)
-                    this.$.departureDate.picker.set('max', false);
-            }
-        }
-        return true;
-    },
-
-    _travelDateChanged: function() {
-        if (this.itineraryType !== undefined) {
-            if (this.itineraryType === 'RoundTrip') {
-                if (this.DepartureDate != '') {
-                    this.$.arrivalDate.picker.set('min', new Date(this.DepartureDate));
-                }
-            } else {
-
-                this.$.departureDate.picker.set('max', false);
-            }
-        }
-    },
-
-    _returnDateChanged: function() {
-        if (this.itineraryType === 'RoundTrip') {
-            if (this.ArrivalDate != '') {
-                this.$.departureDate.picker.set('max', new Date(this.ArrivalDate));
-            }
-        }
-    },
-
-    _getDateArray: function(dateString) {
-        var date = new Date(dateString);
-        return [date.getFullYear, date.getMonth(), date.getDate()];
-    },
-
-    _getDeeplinkUrl: function() {
-
-        var deeplink = this.deeplinkUrl;
-
-        if (this.itineraryType == 'RoundTrip')
-            deeplink = deeplink + "triptype=RoundTrip&";
-        else
-            deeplink = deeplink + "triptype=OneWay&";
-
-        deeplink = deeplink + "adults=" + this.adults + "&children=" + this.children + "&seniors=0&infants=" + this.infant + "&nonstoponly=false&cabinclass=NoPreference&deploc1=" + this.$.DepartureAirport.selectedItem.code + "&arrloc1=" + this.$.ArrivalAirport.selectedItem.code + "&depdate1=" + this.DepartureDate + "&inda1=false&inaa1=false";
-
-        if (this.itineraryType == 'RoundTrip')
-            deeplink = deeplink + "&deploc2=" + this.$.ArrivalAirport.selectedItem.code + "&arrloc2=" + this.$.DepartureAirport.selectedItem.code + "&depdate2=" + this.ArrivalDate + "&inda2=false&inaa2=false";
-
-        deeplink = deeplink + "&dateFormat=MM/dd/yyyy&culture=en-US&currency=USD&cid=mystiquedemo&update=true";
-
-        return deeplink;
-    },
-
-    _validateDestinations: function(event) {
-        if (this.$.DepartureAirport.selectedItem != null && this.$.ArrivalAirport.selectedItem != null) {
-            if (this.$.DepartureAirport.selectedItem.code == this.$.ArrivalAirport.selectedItem.code) {
-                this.$.ArrivalAirport.isInvalid = true;
-                this.$.ArrivalAirport.validate();
-            }
-        }
-    },
-
-    changeMaxCount: function() {
-        this.$.adult.max = 9 - this.$.child.count;
-        this.$.child.max = 9 - this.$.adult.count;
-        this.$.infant.max = this.$.adult.count;
-    },
-
-
-    /**
-     * The method to fire the search function
-     */
-    search: function(searchParams) {
-        if (this.searchType == 'url') {
-            var win = window.open(this._getDeeplinkUrl(), '_blank');
-            win.focus();
-        } else {
-            var btnSubmit = this.querySelector("#submit");
-            btnSubmit.disabled = true;
-            btnSubmit.label = "Searching Flights...";
-            this.fire('on-search', searchParams);
-        }
-    }
-});
 Polymer({
 
         is: 't-range',
@@ -23582,6 +23199,186 @@ Polymer({
         }
     });
 })();
+/**
+   * `IronResizableBehavior` is a behavior that can be used in Polymer elements to
+   * coordinate the flow of resize events between "resizers" (elements that control the
+   * size or hidden state of their children) and "resizables" (elements that need to be
+   * notified when they are resized or un-hidden by their parents in order to take
+   * action on their new measurements).
+   * 
+   * Elements that perform measurement should add the `IronResizableBehavior` behavior to
+   * their element definition and listen for the `iron-resize` event on themselves.
+   * This event will be fired when they become showing after having been hidden,
+   * when they are resized explicitly by another resizable, or when the window has been
+   * resized.
+   * 
+   * Note, the `iron-resize` event is non-bubbling.
+   *
+   * @polymerBehavior Polymer.IronResizableBehavior
+   * @demo demo/index.html
+   **/
+  Polymer.IronResizableBehavior = {
+    properties: {
+      /**
+       * The closest ancestor element that implements `IronResizableBehavior`.
+       */
+      _parentResizable: {
+        type: Object,
+        observer: '_parentResizableChanged'
+      },
+
+      /**
+       * True if this element is currently notifying its descedant elements of
+       * resize.
+       */
+      _notifyingDescendant: {
+        type: Boolean,
+        value: false
+      }
+    },
+
+    listeners: {
+      'iron-request-resize-notifications': '_onIronRequestResizeNotifications'
+    },
+
+    created: function() {
+      // We don't really need property effects on these, and also we want them
+      // to be created before the `_parentResizable` observer fires:
+      this._interestedResizables = [];
+      this._boundNotifyResize = this.notifyResize.bind(this);
+    },
+
+    attached: function() {
+      this.fire('iron-request-resize-notifications', null, {
+        node: this,
+        bubbles: true,
+        cancelable: true
+      });
+
+      if (!this._parentResizable) {
+        window.addEventListener('resize', this._boundNotifyResize);
+        this.notifyResize();
+      }
+    },
+
+    detached: function() {
+      if (this._parentResizable) {
+        this._parentResizable.stopResizeNotificationsFor(this);
+      } else {
+        window.removeEventListener('resize', this._boundNotifyResize);
+      }
+
+      this._parentResizable = null;
+    },
+
+    /**
+     * Can be called to manually notify a resizable and its descendant
+     * resizables of a resize change.
+     */
+    notifyResize: function() {
+      if (!this.isAttached) {
+        return;
+      }
+
+      this._interestedResizables.forEach(function(resizable) {
+        if (this.resizerShouldNotify(resizable)) {
+          this._notifyDescendant(resizable);
+        }
+      }, this);
+
+      this._fireResize();
+    },
+
+    /**
+     * Used to assign the closest resizable ancestor to this resizable
+     * if the ancestor detects a request for notifications.
+     */
+    assignParentResizable: function(parentResizable) {
+      this._parentResizable = parentResizable;
+    },
+
+    /**
+     * Used to remove a resizable descendant from the list of descendants
+     * that should be notified of a resize change.
+     */
+    stopResizeNotificationsFor: function(target) {
+      var index = this._interestedResizables.indexOf(target);
+
+      if (index > -1) {
+        this._interestedResizables.splice(index, 1);
+        this.unlisten(target, 'iron-resize', '_onDescendantIronResize');
+      }
+    },
+
+    /**
+     * This method can be overridden to filter nested elements that should or
+     * should not be notified by the current element. Return true if an element
+     * should be notified, or false if it should not be notified.
+     *
+     * @param {HTMLElement} element A candidate descendant element that
+     * implements `IronResizableBehavior`.
+     * @return {boolean} True if the `element` should be notified of resize.
+     */
+    resizerShouldNotify: function(element) { return true; },
+
+    _onDescendantIronResize: function(event) {
+      if (this._notifyingDescendant) {
+        event.stopPropagation();
+        return;
+      }
+
+      // NOTE(cdata): In ShadowDOM, event retargetting makes echoing of the
+      // otherwise non-bubbling event "just work." We do it manually here for
+      // the case where Polymer is not using shadow roots for whatever reason:
+      if (!Polymer.Settings.useShadow) {
+        this._fireResize();
+      }
+    },
+
+    _fireResize: function() {
+      this.fire('iron-resize', null, {
+        node: this,
+        bubbles: false
+      });
+    },
+
+    _onIronRequestResizeNotifications: function(event) {
+      var target = event.path ? event.path[0] : event.target;
+
+      if (target === this) {
+        return;
+      }
+
+      if (this._interestedResizables.indexOf(target) === -1) {
+        this._interestedResizables.push(target);
+        this.listen(target, 'iron-resize', '_onDescendantIronResize');
+      }
+
+      target.assignParentResizable(this);
+      this._notifyDescendant(target);
+
+      event.stopPropagation();
+    },
+
+    _parentResizableChanged: function(parentResizable) {
+      if (parentResizable) {
+        window.removeEventListener('resize', this._boundNotifyResize);
+      }
+    },
+
+    _notifyDescendant: function(descendant) {
+      // NOTE(cdata): In IE10, attached is fired on children first, so it's
+      // important not to notify them if the parent is not attached yet (or
+      // else they will get redundantly notified when the parent attaches).
+      if (!this.isAttached) {
+        return;
+      }
+
+      this._notifyingDescendant = true;
+      descendant.notifyResize();
+      this._notifyingDescendant = false;
+    }
+  };
 Polymer({
 
     is: 'iron-collapse',
@@ -23830,6 +23627,224 @@ Polymer({
     }
 
 }) ;
+/**
+   * `Polymer.IronScrollTargetBehavior` allows an element to respond to scroll events from a
+   * designated scroll target.
+   *
+   * Elements that consume this behavior can override the `_scrollHandler`
+   * method to add logic on the scroll event.
+   *
+   * @demo demo/scrolling-region.html Scrolling Region
+   * @demo demo/document.html Document Element
+   * @polymerBehavior
+   */
+  Polymer.IronScrollTargetBehavior = {
+
+    properties: {
+
+      /**
+       * Specifies the element that will handle the scroll event
+       * on the behalf of the current element. This is typically a reference to an element,
+       * but there are a few more posibilities:
+       *
+       * ### Elements id
+       *
+       *```html
+       * <div id="scrollable-element" style="overflow: auto;">
+       *  <x-element scroll-target="scrollable-element">
+       *    \x3c!-- Content--\x3e
+       *  </x-element>
+       * </div>
+       *```
+       * In this case, the `scrollTarget` will point to the outer div element. 
+       *
+       * ### Document scrolling
+       *
+       * For document scrolling, you can use the reserved word `document`:
+       *
+       *```html
+       * <x-element scroll-target="document">
+       *   \x3c!-- Content --\x3e
+       * </x-element>
+       *```
+       *
+       * ### Elements reference
+       *
+       *```js
+       * appHeader.scrollTarget = document.querySelector('#scrollable-element');
+       *```
+       * 
+       * @type {HTMLElement}
+       */
+      scrollTarget: {
+        type: HTMLElement,
+        value: function() {
+          return this._defaultScrollTarget;
+        }
+      }
+    },
+
+    observers: [
+      '_scrollTargetChanged(scrollTarget, isAttached)'
+    ],
+
+    _scrollTargetChanged: function(scrollTarget, isAttached) {
+      var eventTarget;
+
+      if (this._oldScrollTarget) {
+        eventTarget = this._oldScrollTarget === this._doc ? window : this._oldScrollTarget;
+        eventTarget.removeEventListener('scroll', this._boundScrollHandler);
+        this._oldScrollTarget = null;
+      }
+
+      if (!isAttached) {
+        return;
+      }
+      // Support element id references
+      if (scrollTarget === 'document') {
+
+        this.scrollTarget = this._doc;
+
+      } else if (typeof scrollTarget === 'string') {
+
+        this.scrollTarget = this.domHost ? this.domHost.$[scrollTarget] :
+            Polymer.dom(this.ownerDocument).querySelector('#' + scrollTarget);
+
+      } else if (this._isValidScrollTarget()) {
+
+        eventTarget = scrollTarget === this._doc ? window : scrollTarget;
+        this._boundScrollHandler = this._boundScrollHandler || this._scrollHandler.bind(this);
+        this._oldScrollTarget = scrollTarget;
+
+        eventTarget.addEventListener('scroll', this._boundScrollHandler);
+      }
+    },
+
+    /**
+     * Runs on every scroll event. Consumer of this behavior may override this method.
+     *
+     * @protected
+     */
+    _scrollHandler: function scrollHandler() {},
+
+    /**
+     * The default scroll target. Consumers of this behavior may want to customize
+     * the default scroll target.
+     *
+     * @type {Element}
+     */
+    get _defaultScrollTarget() {
+      return this._doc;
+    },
+
+    /**
+     * Shortcut for the document element
+     *
+     * @type {Element}
+     */
+    get _doc() {
+      return this.ownerDocument.documentElement;
+    },
+
+    /**
+     * Gets the number of pixels that the content of an element is scrolled upward.
+     *
+     * @type {number}
+     */
+    get _scrollTop() {
+      if (this._isValidScrollTarget()) {
+        return this.scrollTarget === this._doc ? window.pageYOffset : this.scrollTarget.scrollTop;
+      }
+      return 0;
+    },
+
+    /**
+     * Gets the number of pixels that the content of an element is scrolled to the left.
+     *
+     * @type {number}
+     */
+    get _scrollLeft() {
+      if (this._isValidScrollTarget()) {
+        return this.scrollTarget === this._doc ? window.pageXOffset : this.scrollTarget.scrollLeft;
+      }
+      return 0;
+    },
+
+    /**
+     * Sets the number of pixels that the content of an element is scrolled upward.
+     *
+     * @type {number}
+     */
+    set _scrollTop(top) {
+      if (this.scrollTarget === this._doc) {
+        window.scrollTo(window.pageXOffset, top);
+      } else if (this._isValidScrollTarget()) {
+        this.scrollTarget.scrollTop = top;
+      }
+    },
+
+    /**
+     * Sets the number of pixels that the content of an element is scrolled to the left.
+     *
+     * @type {number}
+     */
+    set _scrollLeft(left) {
+      if (this.scrollTarget === this._doc) {
+        window.scrollTo(left, window.pageYOffset);
+      } else if (this._isValidScrollTarget()) {
+        this.scrollTarget.scrollLeft = left;
+      }
+    },
+
+    /**
+     * Scrolls the content to a particular place.
+     *
+     * @method scroll
+     * @param {number} left The left position
+     * @param {number} top The top position
+     */
+    scroll: function(left, top) {
+       if (this.scrollTarget === this._doc) {
+        window.scrollTo(left, top);
+      } else if (this._isValidScrollTarget()) {
+        this.scrollTarget.scrollLeft = left;
+        this.scrollTarget.scrollTop = top;
+      }
+    },
+
+    /**
+     * Gets the width of the scroll target.
+     *
+     * @type {number}
+     */
+    get _scrollTargetWidth() {
+      if (this._isValidScrollTarget()) {
+        return this.scrollTarget === this._doc ? window.innerWidth : this.scrollTarget.offsetWidth;
+      }
+      return 0;
+    },
+
+    /**
+     * Gets the height of the scroll target.
+     *
+     * @type {number}
+     */
+    get _scrollTargetHeight() {
+      if (this._isValidScrollTarget()) {
+        return this.scrollTarget === this._doc ? window.innerHeight : this.scrollTarget.offsetHeight;
+      }
+      return 0;
+    },
+
+    /**
+     * Returns true if the scroll target is a valid HTMLElement.
+     *
+     * @return {boolean}
+     */
+    _isValidScrollTarget: function() {
+      return this.scrollTarget instanceof HTMLElement;
+    }
+  };
 (function() {
 
   var IOS = navigator.userAgent.match(/iP(?:hone|ad;(?: U;)? CPU) OS (\d+)/);
@@ -27149,6 +27164,78 @@ Polymer({
   });
 
 })();
+/** @polymerBehavior */
+  Polymer.PaperSpinnerBehavior = {
+
+    listeners: {
+      'animationend': '__reset',
+      'webkitAnimationEnd': '__reset'
+    },
+
+    properties: {
+      /**
+       * Displays the spinner.
+       */
+      active: {
+        type: Boolean,
+        value: false,
+        reflectToAttribute: true,
+        observer: '__activeChanged'
+      },
+
+      /**
+       * Alternative text content for accessibility support.
+       * If alt is present, it will add an aria-label whose content matches alt when active.
+       * If alt is not present, it will default to 'loading' as the alt value.
+       */
+      alt: {
+        type: String,
+        value: 'loading',
+        observer: '__altChanged'
+      },
+
+      __coolingDown: {
+        type: Boolean,
+        value: false
+      }
+    },
+
+    __computeContainerClasses: function(active, coolingDown) {
+      return [
+        active || coolingDown ? 'active' : '',
+        coolingDown ? 'cooldown' : ''
+      ].join(' ');
+    },
+
+    __activeChanged: function(active, old) {
+      this.__setAriaHidden(!active);
+      this.__coolingDown = !active && old;
+    },
+
+    __altChanged: function(alt) {
+      // user-provided `aria-label` takes precedence over prototype default
+      if (alt === this.getPropertyInfo('alt').value) {
+        this.alt = this.getAttribute('aria-label') || alt;
+      } else {
+        this.__setAriaHidden(alt==='');
+        this.setAttribute('aria-label', alt);
+      }
+    },
+
+    __setAriaHidden: function(hidden) {
+      var attr = 'aria-hidden';
+      if (hidden) {
+        this.setAttribute(attr, 'true');
+      } else {
+        this.removeAttribute(attr);
+      }
+    },
+
+    __reset: function() {
+      this.active = false;
+      this.__coolingDown = false;
+    }
+  };
 Polymer({
       is: 'paper-spinner',
 

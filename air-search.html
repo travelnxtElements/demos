@@ -5,10 +5,10 @@
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="viewport" content="initial-scale=1, maximum-scale=1" />
-        <link href='http://fonts.googleapis.com/css?family=Lobster|Merriweather' rel='stylesheet' type='text/css' />
+        <meta name="viewport" content="initial-scale=1, maximum-scale=1" />   
         <script src="bower_components/webcomponentsjs/webcomponents-lite.min.js"></script>
         <link rel="import" href="elements.html">
+
     </head>
 
     <body>
@@ -20,6 +20,7 @@
                 width: 100%;
                 height: 100%;
                 margin: 0;
+                font-family: 'Open Sans', sans-serif;
             }
 
             .main {
@@ -33,7 +34,7 @@
                 background: rgba(0, 0, 0, 0.8);
                 min-width: 300px;
                 width: 400px;
-                margin: 0 10px;
+                margin: 40px 10px 0 50px;
                 border-radius: 10px;
                 -webkit-box-sizing: border-box;
                 -moz-box-sizing: border-box;
@@ -54,14 +55,16 @@
 
             .list {
                 position: absolute;
-                top: 100%;
+                top: 200%;
                 left: 0;
                 width: 100%;
                 background-color: white;
                 height: 100%;
-                -webkit-transition: 0.3s ease all;
-                -o-transition: 0.3s ease all;
-                transition: 0.3s ease all;
+                display: table;
+                clear: both;
+                -webkit-transition: 0.6s ease all;
+                -o-transition: 0.6s ease all;
+                transition: 0.6s ease all;
             }
 
             .list.active {
@@ -77,9 +80,21 @@
                 -o-transition: 0.3s ease all;
                 transition: 0.3s ease all;
                 opacity: 1;
+                float: right;
+                margin-top: -4px;
+                background-color: #07c5f2;
+                color: #fff;
+                font-size: 14px;
             }
             #again.hide{
                 opacity: 0;
+            }
+            .page-section
+            {
+                position:relative; 
+                float:left;
+                width:100%;
+
             }
             @media (min-width: 40em){
                 .h1{
@@ -96,29 +111,25 @@
             </style>
             <div class="layout vertical main">
                 <div class="layout horizontal center header" style="background:#eee;padding:10px 20px;">
-                    <img src="https://s3.amazonaws.com/tavisca.samplebucket/124850/Images/c9154425-43be-4a7a-9d44-463c97a58040" alt="logo" />
-                    <span class="flex"></span>
+                    <img src="https://s3.amazonaws.com/tavisca.samplebucket/124850/Images/c9154425-43be-4a7a-9d44-463c97a58040" alt="logo" />                    
                     <a id="again" class="hide" on-click="_againSearch">Search Again</a>
                 </div>
-                <div class="layout horizontal center flex end-justified" style="position:relative">
+                <div class="layout horizontal center flex end-justified page-section">                    
+
                     <div class="search">
                         <t-air-search id="airSearchComponent" trip-type="Round trip" search-type="event" suggestion-url="http://demo.travelnxt.com/api/Content/autosuggest/" query-params="cid=mystiquedemo&token=w1q3rbau2uswx4awygaf4ell"></t-air-search>
                         <t-search-initiator url="http://demo.travelnxt.com/api/Flight/search?cid=mystiquedemo&token=w1q3rbau2uswx4awygaf4ell" on-initiation="callback"></t-search-initiator>
-                    </div><!--
-                    <div class="flex">
-                        <div class="text">
-                            <h1 class="h1">
-                            Amazing flights at amazing prices... Built with web components
-                        </h1>
-                        </div>
-                    </div> -->
+                    </div>
+
                     <div class="list">
-                        <t-list token-param="inventories" with-sorting with-filter exclude-filters='["CabinType","FareType","FlightDuration","DepartureTime","ArrivalTime"]' on-list-population="_listPopulated" on-item-selected="_resultSelected" id="resultsList">
+                        <div style="overflow:auto">
+                        <t-list token-param="inventories" with-sorting with-filter on-list-population="_listPopulated" on-item-selected="_resultSelected" id="resultsList">
                             <template>
                                 <t-result-item itinerary="{{item}}">
                                 </t-result-item>
                             </template>
                         </t-list>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -136,6 +147,8 @@
                 templatizer.$.resultsList.filterResultsApi = "http://demo.travelnxt.com/api/Flight/results/Filter/[-sid-]/both?cid=mystiquedemo&$top=20&token=w1q3rbau2uswx4awygaf4ell".replace("[-sid-]", sid);
                 templatizer.$.resultsList.dataApi = "http://demo.travelnxt.com/api/Flight/results/[-sid-]/rates?cid=mystiquedemo&$top=20&token=w1q3rbau2uswx4awygaf4ell".replace("[-sid-]", sid);
                 templatizer.$.resultsList.generateList();
+                templatizer.$.resultsList.querySelector('t-filter').generateFilter();                
+                
             } else {
         var btnSubmit = document.querySelector("#submit");
                 btnSubmit.disabled = false;

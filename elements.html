@@ -1,6 +1,6 @@
 <html><head><!--
 @license
-Copyright (c) 2015 The Polymer Project Authors. All rights reserved.
+Copyright (c) 2014 The Polymer Project Authors. All rights reserved.
 This code may only be used under the BSD style license found at http://polymer.github.io/LICENSE.txt
 The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
 The complete set of contributors may be found at http://polymer.github.io/CONTRIBUTORS.txt
@@ -8,7 +8,7 @@ Code distributed by Google as part of the polymer project is also
 subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
 --><!--
 @license
-Copyright (c) 2014 The Polymer Project Authors. All rights reserved.
+Copyright (c) 2015 The Polymer Project Authors. All rights reserved.
 This code may only be used under the BSD style license found at http://polymer.github.io/LICENSE.txt
 The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
 The complete set of contributors may be found at http://polymer.github.io/CONTRIBUTORS.txt
@@ -22,7 +22,214 @@ The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
 The complete set of contributors may be found at http://polymer.github.io/CONTRIBUTORS.txt
 Code distributed by Google as part of the polymer project is also
 subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
---><meta charset="UTF-8"><style>
+--><meta charset="UTF-8"></head><body><div hidden="" by-vulcanize=""><dom-module id="iron-a11y-announcer" assetpath="bower_components/iron-a11y-announcer/">
+  <style>
+    :host {
+      display: inline-block;
+      position: fixed;
+      clip: rect(0px,0px,0px,0px);
+    }
+  </style>
+
+  <template>
+    <div aria-live$="[[mode]]">[[_text]]</div>
+  </template>
+
+  </dom-module>
+
+
+<dom-module id="t-input-container" assetpath="bower_components/t-input/">
+
+  <style>
+
+    :host {
+      display: block;
+      position: relative;
+      font-family: var(--primary-font-family);
+     /* Removing padding to adjust in the current scenairo */
+     /*  padding: 8px 0; */
+
+    }
+
+    :host[inline] {
+      display: inline-block;
+    }
+
+    :host([disabled]) {
+      pointer-events: none;
+      opacity: 0.33;
+    }
+    .underline {
+      position: relative;
+    }
+    :host ::content paper-input-error[invalid] {
+      visibility: hidden;
+      font-family: var(--primary-font-family,'Open sans')
+    }
+    :host.invalid-input ::content paper-input-error[invalid] {
+      visibility: visible;
+    }
+    :host.invalid-input .input-content ::content input,
+    :host.invalid-input .input-content ::content .input {
+      border-color:  var(--error-theme-color,--error-color)!important;
+    }
+    .underline {
+        position: relative;
+      }
+
+      .floated-label-placeholder {
+        @apply(--t-font-caption);
+      }
+
+      .input-content.label-is-hidden ::content label,
+      .input-content.label-is-hidden ::content .paper-input-label {
+        visibility: hidden;
+      }
+      
+
+
+      .unfocused-line {
+        @apply(--layout-fit);
+
+        background: var(--form-underline-color, --secondary-text-color);
+        height: 1px;
+
+      }
+      :host.invalid-input .unfocused-line {
+        background: var(--paper-input-container-invalid-color, --error-color);
+        -webkit-transform: none;
+        transform: none;
+        -webkit-transition: -webkit-transform 0.25s;
+        transition: transform 0.25s;
+
+        @apply(--paper-transition-easing);
+      }
+      :host([disabled]) .unfocused-line {
+        border-bottom: 1px dashed;
+        border-color: var(--paper-input-container-color, --secondary-text-color);
+        background: transparent;
+
+      }
+      .input-content {
+        @apply(--layout-horizontal);
+        @apply(--layout-center);
+
+        position: relative;
+      }
+
+      .input-content ::content label,
+      .input-content ::content .paper-input-label {
+        position: absolute;
+        top: 0;
+        right: 0;
+        left: 0;
+        width: 100%;
+        font: inherit;
+        color: var( --form-label-color, #777);
+        -webkit-transition: -webkit-transform 0.25s, width 0.25s;
+        transition: transform 0.25s, width 0.25s;
+        -webkit-transform-origin: left top;
+        transform-origin: left top;
+        line-height: 28px;
+        @apply(--t-font-common-nowrap);
+        @apply(--t-font-subhead);
+        @apply(--t-input-container-label);
+        @apply(--t-form-transition-easing);
+      }
+
+      .input-content.label-is-floating ::content label,
+      .input-content.label-is-floating ::content .paper-input-label {
+        -webkit-transform: translateY(-75%) scale(0.75);
+        transform: translateY(-75%) scale(0.75);
+
+        /* Since we scale to 75/100 of the size, we actually have 100/75 of the
+        original space now available */
+        width: 133%;
+
+        @apply(--t-input-container-label-floating);
+      }
+    
+    .input-content ::content input,
+    .input-content ::content textarea,
+    .input-content ::content .paper-input-input {
+        position: relative; /* to make a stacking context */
+        box-shadow: none;
+        padding: 0;
+        width: 100%;
+        max-width: 100%;
+        background: transparent;
+        border: none;
+        color: var( --form-value-color, #777);
+        -webkit-appearance: none;
+        text-align: inherit;
+        outline: 0;
+        line-height: 28px;
+        @apply(--t-font-subhead);
+        @apply(--t-input-container-input);
+    }
+
+  
+
+    .input-content ::content textarea {
+      resize: none;
+    }
+
+    .add-on-content.is-invalid ::content * {
+        color: var(--paper-input-container-invalid-color, --error-color);
+      }
+
+  </style>
+
+  <template>
+    
+
+<template is="dom-if" if="[[!noLabelFloat]]">
+      <div class="floated-label-placeholder">&nbsp;</div>
+    </template>
+
+    <div class$="[[_computeInputContentClass(noLabelFloat,alwaysFloatLabel,focused,invalid,_inputHasContent)]]">
+      <content select=":not([add-on])"></content>
+    </div>
+    
+    <div class$="[[_computeUnderlineClass(focused,invalid)]]">
+      <div class="unfocused-line"></div>
+      
+    </div>
+    
+    <div class$="[[_computeAddOnContentClass(focused,invalid)]]">
+      <content id="addOnContent" select="[add-on]"></content>
+    </div>
+
+  </template>
+
+</dom-module>
+
+<dom-module id="t-master-input" assetpath="bower_components/t-input/">
+
+  
+  <template>
+
+    <t-input-container fire-blur="{{validateOnBlur}}" no-label-float="[[noLabelFloat]]" always-float-label="[[_computeAlwaysFloatLabel(alwaysFloatLabel,placeholder)]]" auto-validate$="[[autoValidate]]" disabled$="[[disabled]]" invalid="[[invalid]]">
+
+      <label hidden$="[[!label]]">[[label]]</label>
+
+      <input is="iron-input" id="input" aria-labelledby$="[[_ariaLabelledBy]]" aria-describedby$="[[_ariaDescribedBy]]" disabled$="[[disabled]]" bind-value="{{value}}" invalid="{{invalid}}" prevent-invalid-input="[[preventInvalidInput]]" allowedpattern="[[allowedPattern]]" validator="[[validator]]" type$="[[type]]" min="[[min]]" max="[[max]]" pattern$="[[pattern]]" maxlength$="[[maxlength]]" required$="[[required]]" autocomplete$="[[autocomplete]]" autocapitalize$="[[autocapitalize]]" autocorrect$="[[autocorrect]]" autofocus$="[[autofocus]]" inputmode$="[[inputmode]]" minlength$="[[minlength]]" name$="[[name]]" placeholder$="[[placeholder]]" readonly$="[[readonly]]" size$="[[size]]">
+
+      <template is="dom-if" if="[[errorMessage]]">
+        <paper-input-error class="error">[[errorMessage]]</paper-input-error>
+      </template>
+
+      <template is="dom-if" if="[[charCounter]]">
+        <paper-input-char-counter></paper-input-char-counter>
+      </template>
+
+    </t-input-container>
+
+  </template>
+
+</dom-module>
+
+<style>
   /* IE 10 support for HTML5 hidden attr */
   [hidden] {
     display: none !important;
@@ -374,6 +581,78 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
 
 </style>
 
+
+<dom-module id="iron-autogrow-textarea" assetpath="bower_components/iron-autogrow-textarea/">
+
+  <style>
+    :host {
+      display: inline-block;
+      position: relative;
+      width: 400px;
+      border: 1px solid;
+      padding: 2px;
+      -moz-appearance: textarea;
+      -webkit-appearance: textarea;
+      overflow: hidden;
+    }
+
+    .mirror-text {
+      visibility: hidden;
+      word-wrap: break-word;
+    }
+
+    .fit {
+      @apply(--layout-fit);
+    }
+
+    textarea {
+      position: relative;
+      outline: none;
+      border: none;
+      resize: none;
+      background: inherit;
+      color: inherit;
+      /* see comments in template */
+      width: 100%;
+      height: 100%;
+      font-size: inherit;
+      font-family: inherit;
+      line-height: inherit;
+      text-align: inherit;
+      @apply(--iron-autogrow-textarea);
+    }
+
+    ::content textarea:invalid {
+      box-shadow: none;
+    }
+
+    textarea::-webkit-input-placeholder {
+      @apply(--iron-autogrow-textarea-placeholder);
+    }
+
+    textarea:-moz-placeholder {
+      @apply(--iron-autogrow-textarea-placeholder);
+    }
+
+    textarea::-moz-placeholder {
+      @apply(--iron-autogrow-textarea-placeholder);
+    }
+
+    textarea:-ms-input-placeholder {
+      @apply(--iron-autogrow-textarea-placeholder);
+    }
+  </style>
+  <template>
+    
+    
+    <div id="mirror" class="mirror-text" aria-hidden="true">&nbsp;</div>
+
+    
+    <div class="textarea-container fit">
+      <textarea id="textarea" name$="[[name]]" autocomplete$="[[autocomplete]]" autofocus$="[[autofocus]]" inputmode$="[[inputmode]]" placeholder$="[[placeholder]]" readonly$="[[readonly]]" required$="[[required]]" disabled$="[[disabled]]" rows$="[[rows]]" maxlength$="[[maxlength]]"></textarea>
+    </div>
+  </template>
+</dom-module>
 
 <style is="custom-style">
 
@@ -913,670 +1192,6 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
   }
 
 </style>
-<style is="custom-style">
-
-  :root {
-
-    --shadow-transition: {
-      transition: box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-    };
-
-    --shadow-none: {
-      box-shadow: none;
-    };
-
-    /* from http://codepen.io/shyndman/pen/c5394ddf2e8b2a5c9185904b57421cdb */
-
-    --shadow-elevation-2dp: {
-      box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.14),
-                  0 1px 5px 0 rgba(0, 0, 0, 0.12),
-                  0 3px 1px -2px rgba(0, 0, 0, 0.2);
-    };
-
-    --shadow-elevation-3dp: {
-      box-shadow: 0 3px 4px 0 rgba(0, 0, 0, 0.14),
-                  0 1px 8px 0 rgba(0, 0, 0, 0.12),
-                  0 3px 3px -2px rgba(0, 0, 0, 0.4);
-    };
-
-    --shadow-elevation-4dp: {
-      box-shadow: 0 4px 5px 0 rgba(0, 0, 0, 0.14),
-                  0 1px 10px 0 rgba(0, 0, 0, 0.12),
-                  0 2px 4px -1px rgba(0, 0, 0, 0.4);
-    };
-
-    --shadow-elevation-6dp: {
-      box-shadow: 0 6px 10px 0 rgba(0, 0, 0, 0.14),
-                  0 1px 18px 0 rgba(0, 0, 0, 0.12),
-                  0 3px 5px -1px rgba(0, 0, 0, 0.4);
-    };
-
-    --shadow-elevation-8dp: {
-      box-shadow: 0 8px 10px 1px rgba(0, 0, 0, 0.14),
-                  0 3px 14px 2px rgba(0, 0, 0, 0.12),
-                  0 5px 5px -3px rgba(0, 0, 0, 0.4);
-    };
-
-    --shadow-elevation-12dp: {
-      box-shadow: 0 12px 16px 1px rgba(0, 0, 0, 0.14),
-                  0 4px 22px 3px rgba(0, 0, 0, 0.12),
-                  0 6px 7px -4px rgba(0, 0, 0, 0.4);
-    };
-
-    --shadow-elevation-16dp: {
-      box-shadow: 0 16px 24px 2px rgba(0, 0, 0, 0.14),
-                  0  6px 30px 5px rgba(0, 0, 0, 0.12),
-                  0  8px 10px -5px rgba(0, 0, 0, 0.4);
-    };
-
-  }
-
-</style>
-
-
-
-
-<style is="custom-style">
-:root {
-  
-}
-</style>
-
-<style>
-:host {
-    display: block;
-}
-
-.t-starrating-wrapper {
-    unicode-bidi: bidi-override;
-    direction: rtl;
-}
-
-.t-starrating-wrapper > span {
-    display: inline-block;
-    position: relative;
-    width: 1em;
-    font-size: 1.5em;
-    cursor: pointer;
-    opacity: 0.4;
-}
-
-.t-starrating-wrapper > span.active,
-.t-starrating-wrapper > span.active ~ span {
-    opacity: 1;
-}
-
-.t-starrating-wrapper:hover > span.active,
-.t-starrating-wrapper:hover > span.active ~ span {
-    opacity: 0.4;
-}
-
-.t-starrating-wrapper > span:hover,
-.t-starrating-wrapper > span:hover ~ span,
-.t-starrating-wrapper > span.active:hover ~ span {
-    opacity: 0.8 !important;
-}
-
-.t-starrating-wrapper > span:hover {
-    opacity: 0.9 !important;
-}
-
-.t-starrating-wrapper > span.totals {
-    opacity: 1 !important;
-    margin-left: 50px;
-}
-
-.t-starrating-wrapper > span.totals:hover {
-    opacity: 1 !important;
-}
-</style>
-<link href="https://fonts.googleapis.com/css?family=Open+Sans:400,300,600,700" rel="stylesheet" type="text/css">
-
-<style is="custom-style">
-  
-:root {
-
-
---input-border-color: #bbbbbb;
-
---t-font-common-base: {
-  font-family: var(--primary-font-family);
-  -webkit-font-smoothing: antialiased;
-};
---t-form-transition-easing: {
-    -webkit-transition-timing-function: ease-in-out;
-    transition-timing-function: ease-in-out;
-}
-
---t-font-caption: {
-  @apply(--t-font-common-base);
-  @apply(--t-font-common-nowrap);
-
-  font-size: 12px;
-  font-weight: 400;
-  letter-spacing: 0.011em;
-  line-height: 20px;
-};
---t-font-common-nowrap: {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-};
-
---t-font-subhead: {
-  @apply(--t-font-common-base);
-
-  font-size: 16px;
-  font-weight: 400;
-};
-
---t-input-container-label: {
-  /*apply t-input-container label style */
-}
---t-input-container-label-floating: {
-  /*apply t-input-container when floating label style */
-}
---t-input-container-input:{
-  /*apply t-input-container value style */
-}
-
-/* Style start Autosuggest */
-
-
---autosuggest-item-text-size:12px;
---autosuggest-item-text-color:var(--grey-four);
---autosuggest-item-bg-color:#fafafa;
---autosuggest-item-border-color: var(--input-border-color);
---autosuggest-item-padding: 12px 10px;
-
-/*Common styles*/
---form-label-color: var(--light-primary-color);
---form-label-size:16px;
---form-label-margin:10px;
---form-border-color: var(--light-primary-color);
---form-value-color: var(--grey-four);
---form-underline-color: #e0e0e0;
---error-color:var(--error-theme-color); 
-
---standard-border-radius:2px;
-
-/* not found yet */
---standard-input-field-text-size:16px;
---standard-padding-input-field:12px;
---form-label-mobile-size: 12px;
---form-label-mobile-margin:5px;
-/* end */
-
-
-
-/* Radiobutton and Pill button */
---radio-button-item-margin: 14px;
-
---radio-button-unchecked-color: var(--default-primary-color);
-
---radio-button-checked-color: var(--default-primary-color);
-
-/*Calendar*/
-
---calendar-box-background-color:#fff;
-
---calendar-year-month-text-color:var(--grey-five);
-
---calendar-box-prev-next-color:var(--grey-five);
---calendar-box-prev-next-hover-color:#fff;
---calendar-box-prev-next-hover-bg:var(--default-primary-color);
-
---calendar-disabled-text-color:var(--disabled-text-color);
-
---calendar-weekday-text-size:var(--standard-input-field-text-size);
---calendar-weekday-text-color:var(--grey-four);
-
---calendar-day-text-color:var(--default-primary-color);
---calendar-day-hover-bg:var(--default-primary-color);
---calendar-day-hover-text:#fff;
-
---calendar-day-selected-bg:var(--default-primary-color);
---calendar-box-border-color:#eee;
-
-
-
-/*Checkbox (& checkbox list) */
---checkbox-unchecked-bg: #fff;
---checkbox-unchecked-color: var(--grey-four);
---checkbox-unchecked-ink-color: var(--grey-four);
-
---checkbox-check-sign-color: #fff;
---checkbox-checked-color: var(--default-primary-color);
---checkbox-checked-ink-color: var(--default-primary-color);
-
---checkbox-item-margin: 14px;/* the distance between two item */
-
---checkbox-item-text-size: 14px ;
---checkbox-item-text-color: var(--grey-four);
-
-
-
-/* button Styling */
---button-text-size:14px;
---button-text-color: var(--grey-four);
---button-bg-color:#fff;
---button-primary-bg-color: var(--default-primary-color);
---button-primary-text-color:var(--secondary-text-color);
-
---button-disabled-bg-color: var(--primary-disabled-background-color);
---button-disabled-text-color:#a8a8a8;
-
---button-min-width: 5.14em;
-
---icon-color: var(--grey-four);
---icon-bg-color:transparent;
---button-icon-size:24px;
-
-
-/* Start t-table */
---table-header-bg: var(--grey-four);
---table-header-text-size: 11px;
---table-header-text-color:#fff;
-
---table-body-text-size:12px;
---table-body-text-color: var(--grey-four);
---table-div-padding: 16px 15px;
---table-row-border-color: var(--table-row-striped-bg);
---table-row-striped-bg: var(--grey-one);
---table-row-hover-bg: #eeeeee;
-
-/* pagination */
---middle-pagination-border: 1px solid var(--grey-one);
---total-pagination-border: 1px solid var(--grey-one);
---pagination-text-color: var(--grey-four);
---pagination-bg-color:#eee;
---pagination-hover-bg:var(--grey-one);
-
-/* Color-picker */
---color-picker-height:42px;
-
-/* loader */
-
---t-loader-layer-1-color: var(--default-primary-color);
---t-loader-layer-2-color: var(--default-primary-color);
---t-loader-layer-3-color: var(--default-primary-color);
---t-loader-layer-4-color: var(--default-primary-color);
-
-
-/* Slider */
---t-slider-active-color: var(--default-primary-color);
---t-slider-secondary-color: var(--default-primary-color);
---t-slider-disabled-active-color: var(--grey-three);
---t-slider-disabled-secondary-color: var(--grey-two);
---t-slider-knob-color: var(--default-primary-color);
---t-slider-pin-color: var(--default-primary-color);
---t-slider-font-color: var(-grey-one);
---t-slider-disabled-knob-color: var(--grey-three);
-
-/* Section Header */
---section-header-text-size: 16px;
---section-header-line-color: var(--grey-three);
---section-header-color: var(--grey-four);
---section-header-bg-color: var(--grey-two);
-
-/* Input Style for both text area and input */
-
-
-/* Range Slider  */
-
-
-
-}
-
-</style><style is="custom-style">
-  
-:root {
-    
-    --default-primary-color: #07c5f2;
-
-    --dark-primary-color: #303f9f;
-
-    --light-primary-color: #bbbbbb;
-
-    --text-primary-color: #ccc;
-
-    --accent-color: #ff4081;
-
-    --primary-font-family: 'Open Sans', sans-serif;
-
-    --primary-background-color: #fff;
-
-    --secondary-background-color: #07c5f2;
-
-    --primary-disabled-background-color: #eaeaea;
-
-    --disabled-text-color: #dddddd;
-
-    --primary-text-color: #777;
-
-    --secondary-text-color: #fff;
-
-    --standar-border-radius: 2px;
-
-    --divider-color: #e0e0e0;   
-
-    --header-text-color:#333; 
-
-    --grey-one: #f5f5f5;
-    --grey-two: #eeeeee;
-    --grey-three: #bbbbbb;
-    --grey-four: #777777;
-    --grey-five: #555555;
-    --grey-six: #333333;
-    --grey-seven: #222222;
-    --grey-nine: #999999;
-
-    --error-theme-color: #ec5858;
-
-    --light-color: #ffffff;
-
-    --dark-color: #111;
-    --dark-color-1: #434a54;
-    --dark-color-2: #e1e6ee;
-    --dark-color-3: rgba(67, 74, 84, 0.3);
-
-    --base-color: #0098ff;
-    --base-color-1: #147be1;
-    --base-color-2: #5d9cec;
-
-    --link-color: #147be1;
-    --btn-color: #434a54;
-    --border-color: #b2b8c0;
-    --icon-color: #5d9cec;
-
-    --success-color: #7fad4d;
-    --error-color: #da4646;
-    --error-heading: #722222;
-    
-    --footer-text-size: 10px;   
-    --header-font-size: 26px;
-
-    --font-size-medium:14px;
-    --h4-text-size:16px;
-    --t-header-size:55px;
-}
-</style></head><body><div hidden="" by-vulcanize=""><dom-module id="iron-a11y-announcer" assetpath="bower_components/iron-a11y-announcer/">
-  <style>
-    :host {
-      display: inline-block;
-      position: fixed;
-      clip: rect(0px,0px,0px,0px);
-    }
-  </style>
-
-  <template>
-    <div aria-live$="[[mode]]">[[_text]]</div>
-  </template>
-
-  </dom-module>
-<dom-module id="t-input-container" assetpath="bower_components/t-input/">
-
-  <style>
-
-    :host {
-      display: block;
-      position: relative;
-      font-family: var(--primary-font-family);
-     /* Removing padding to adjust in the current scenairo */
-     /*  padding: 8px 0; */
-
-    }
-
-    :host[inline] {
-      display: inline-block;
-    }
-
-    :host([disabled]) {
-      pointer-events: none;
-      opacity: 0.33;
-    }
-    .underline {
-      position: relative;
-    }
-    :host ::content paper-input-error[invalid] {
-      visibility: hidden;
-      font-family: var(--primary-font-family,'Open sans')
-    }
-    :host.invalid-input ::content paper-input-error[invalid] {
-      visibility: visible;
-    }
-    :host.invalid-input .input-content ::content input,
-    :host.invalid-input .input-content ::content .input {
-      border-color:  var(--error-theme-color,--error-color)!important;
-    }
-    .underline {
-        position: relative;
-      }
-
-      .floated-label-placeholder {
-        @apply(--t-font-caption);
-      }
-
-      .input-content.label-is-hidden ::content label,
-      .input-content.label-is-hidden ::content .paper-input-label {
-        visibility: hidden;
-      }
-      
-
-
-      .unfocused-line {
-        @apply(--layout-fit);
-
-        background: var(--form-underline-color, --secondary-text-color);
-        height: 1px;
-
-      }
-      :host.invalid-input .unfocused-line {
-        background: var(--paper-input-container-invalid-color, --error-color);
-        -webkit-transform: none;
-        transform: none;
-        -webkit-transition: -webkit-transform 0.25s;
-        transition: transform 0.25s;
-
-        @apply(--paper-transition-easing);
-      }
-      :host([disabled]) .unfocused-line {
-        border-bottom: 1px dashed;
-        border-color: var(--paper-input-container-color, --secondary-text-color);
-        background: transparent;
-
-      }
-      .input-content {
-        @apply(--layout-horizontal);
-        @apply(--layout-center);
-
-        position: relative;
-      }
-
-      .input-content ::content label,
-      .input-content ::content .paper-input-label {
-        position: absolute;
-        top: 0;
-        right: 0;
-        left: 0;
-        width: 100%;
-        font: inherit;
-        color: var( --form-label-color, #777);
-        -webkit-transition: -webkit-transform 0.25s, width 0.25s;
-        transition: transform 0.25s, width 0.25s;
-        -webkit-transform-origin: left top;
-        transform-origin: left top;
-        line-height: 28px;
-        @apply(--t-font-common-nowrap);
-        @apply(--t-font-subhead);
-        @apply(--t-input-container-label);
-        @apply(--t-form-transition-easing);
-      }
-
-      .input-content.label-is-floating ::content label,
-      .input-content.label-is-floating ::content .paper-input-label {
-        -webkit-transform: translateY(-75%) scale(0.75);
-        transform: translateY(-75%) scale(0.75);
-
-        /* Since we scale to 75/100 of the size, we actually have 100/75 of the
-        original space now available */
-        width: 133%;
-
-        @apply(--t-input-container-label-floating);
-      }
-    
-    .input-content ::content input,
-    .input-content ::content textarea,
-    .input-content ::content .paper-input-input {
-        position: relative; /* to make a stacking context */
-        box-shadow: none;
-        padding: 0;
-        width: 100%;
-        max-width: 100%;
-        background: transparent;
-        border: none;
-        color: var( --form-value-color, #777);
-        -webkit-appearance: none;
-        text-align: inherit;
-        outline: 0;
-        line-height: 28px;
-        @apply(--t-font-subhead);
-        @apply(--t-input-container-input);
-    }
-
-  
-
-    .input-content ::content textarea {
-      resize: none;
-    }
-
-    .add-on-content.is-invalid ::content * {
-        color: var(--paper-input-container-invalid-color, --error-color);
-      }
-
-  </style>
-
-  <template>
-    
-
-<template is="dom-if" if="[[!noLabelFloat]]">
-      <div class="floated-label-placeholder">&nbsp;</div>
-    </template>
-
-    <div class$="[[_computeInputContentClass(noLabelFloat,alwaysFloatLabel,focused,invalid,_inputHasContent)]]">
-      <content select=":not([add-on])"></content>
-    </div>
-    
-    <div class$="[[_computeUnderlineClass(focused,invalid)]]">
-      <div class="unfocused-line"></div>
-      
-    </div>
-    
-    <div class$="[[_computeAddOnContentClass(focused,invalid)]]">
-      <content id="addOnContent" select="[add-on]"></content>
-    </div>
-
-  </template>
-
-</dom-module>
-
-<dom-module id="t-master-input" assetpath="bower_components/t-input/">
-
-  
-  <template>
-
-    <t-input-container fire-blur="{{validateOnBlur}}" no-label-float="[[noLabelFloat]]" always-float-label="[[_computeAlwaysFloatLabel(alwaysFloatLabel,placeholder)]]" auto-validate$="[[autoValidate]]" disabled$="[[disabled]]" invalid="[[invalid]]">
-
-      <label hidden$="[[!label]]">[[label]]</label>
-
-      <input is="iron-input" id="input" aria-labelledby$="[[_ariaLabelledBy]]" aria-describedby$="[[_ariaDescribedBy]]" disabled$="[[disabled]]" bind-value="{{value}}" invalid="{{invalid}}" prevent-invalid-input="[[preventInvalidInput]]" allowedpattern="[[allowedPattern]]" validator="[[validator]]" type$="[[type]]" min="[[min]]" max="[[max]]" pattern$="[[pattern]]" maxlength$="[[maxlength]]" required$="[[required]]" autocomplete$="[[autocomplete]]" autocapitalize$="[[autocapitalize]]" autocorrect$="[[autocorrect]]" autofocus$="[[autofocus]]" inputmode$="[[inputmode]]" minlength$="[[minlength]]" name$="[[name]]" placeholder$="[[placeholder]]" readonly$="[[readonly]]" size$="[[size]]">
-
-      <template is="dom-if" if="[[errorMessage]]">
-        <paper-input-error class="error">[[errorMessage]]</paper-input-error>
-      </template>
-
-      <template is="dom-if" if="[[charCounter]]">
-        <paper-input-char-counter></paper-input-char-counter>
-      </template>
-
-    </t-input-container>
-
-  </template>
-
-</dom-module>
-
-<dom-module id="iron-autogrow-textarea" assetpath="bower_components/iron-autogrow-textarea/">
-
-  <style>
-    :host {
-      display: inline-block;
-      position: relative;
-      width: 400px;
-      border: 1px solid;
-      padding: 2px;
-      -moz-appearance: textarea;
-      -webkit-appearance: textarea;
-      overflow: hidden;
-    }
-
-    .mirror-text {
-      visibility: hidden;
-      word-wrap: break-word;
-    }
-
-    .fit {
-      @apply(--layout-fit);
-    }
-
-    textarea {
-      position: relative;
-      outline: none;
-      border: none;
-      resize: none;
-      background: inherit;
-      color: inherit;
-      /* see comments in template */
-      width: 100%;
-      height: 100%;
-      font-size: inherit;
-      font-family: inherit;
-      line-height: inherit;
-      text-align: inherit;
-      @apply(--iron-autogrow-textarea);
-    }
-
-    ::content textarea:invalid {
-      box-shadow: none;
-    }
-
-    textarea::-webkit-input-placeholder {
-      @apply(--iron-autogrow-textarea-placeholder);
-    }
-
-    textarea:-moz-placeholder {
-      @apply(--iron-autogrow-textarea-placeholder);
-    }
-
-    textarea::-moz-placeholder {
-      @apply(--iron-autogrow-textarea-placeholder);
-    }
-
-    textarea:-ms-input-placeholder {
-      @apply(--iron-autogrow-textarea-placeholder);
-    }
-  </style>
-  <template>
-    
-    
-    <div id="mirror" class="mirror-text" aria-hidden="true">&nbsp;</div>
-
-    
-    <div class="textarea-container fit">
-      <textarea id="textarea" name$="[[name]]" autocomplete$="[[autocomplete]]" autofocus$="[[autofocus]]" inputmode$="[[inputmode]]" placeholder$="[[placeholder]]" readonly$="[[readonly]]" required$="[[required]]" disabled$="[[disabled]]" rows$="[[rows]]" maxlength$="[[maxlength]]"></textarea>
-    </div>
-  </template>
-</dom-module>
-
 <dom-module id="paper-input-error" assetpath="bower_components/paper-input/">
   <template>
     <style>
@@ -2268,6 +1883,65 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
         </iron-selector>
     </template>
 </dom-module>
+<style is="custom-style">
+
+  :root {
+
+    --shadow-transition: {
+      transition: box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    };
+
+    --shadow-none: {
+      box-shadow: none;
+    };
+
+    /* from http://codepen.io/shyndman/pen/c5394ddf2e8b2a5c9185904b57421cdb */
+
+    --shadow-elevation-2dp: {
+      box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.14),
+                  0 1px 5px 0 rgba(0, 0, 0, 0.12),
+                  0 3px 1px -2px rgba(0, 0, 0, 0.2);
+    };
+
+    --shadow-elevation-3dp: {
+      box-shadow: 0 3px 4px 0 rgba(0, 0, 0, 0.14),
+                  0 1px 8px 0 rgba(0, 0, 0, 0.12),
+                  0 3px 3px -2px rgba(0, 0, 0, 0.4);
+    };
+
+    --shadow-elevation-4dp: {
+      box-shadow: 0 4px 5px 0 rgba(0, 0, 0, 0.14),
+                  0 1px 10px 0 rgba(0, 0, 0, 0.12),
+                  0 2px 4px -1px rgba(0, 0, 0, 0.4);
+    };
+
+    --shadow-elevation-6dp: {
+      box-shadow: 0 6px 10px 0 rgba(0, 0, 0, 0.14),
+                  0 1px 18px 0 rgba(0, 0, 0, 0.12),
+                  0 3px 5px -1px rgba(0, 0, 0, 0.4);
+    };
+
+    --shadow-elevation-8dp: {
+      box-shadow: 0 8px 10px 1px rgba(0, 0, 0, 0.14),
+                  0 3px 14px 2px rgba(0, 0, 0, 0.12),
+                  0 5px 5px -3px rgba(0, 0, 0, 0.4);
+    };
+
+    --shadow-elevation-12dp: {
+      box-shadow: 0 12px 16px 1px rgba(0, 0, 0, 0.14),
+                  0 4px 22px 3px rgba(0, 0, 0, 0.12),
+                  0 6px 7px -4px rgba(0, 0, 0, 0.4);
+    };
+
+    --shadow-elevation-16dp: {
+      box-shadow: 0 16px 24px 2px rgba(0, 0, 0, 0.14),
+                  0  6px 30px 5px rgba(0, 0, 0, 0.12),
+                  0  8px 10px -5px rgba(0, 0, 0, 0.4);
+    };
+
+  }
+
+</style>
 <dom-module id="paper-material-shared-styles" assetpath="bower_components/paper-material/">
   <template>
     <style>
@@ -2298,6 +1972,8 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
     </style>
   </template>
 </dom-module>
+
+
 <dom-module id="paper-material" assetpath="bower_components/paper-material/">
   <template>
     <style include="paper-material-shared-styles"></style>
@@ -2600,6 +2276,12 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
 <g id="zoom-out"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14zM7 9h5v1H7z"></path></g>
 </defs></svg>
 </iron-iconset-svg>
+<style is="custom-style">
+:root {
+  
+}
+</style>
+
 <dom-module id="t-loader" assetpath="bower_components/t-loader/">
 
   <link rel="import" type="css" href="bower_components/t-loader/t-loader.css">
@@ -3011,8 +2693,6 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
         </h4>
     </template>
 </dom-module>
-<llink rel="import" href="bower_components/paper-styles/typography.html">
-
 <dom-module id="paper-item-shared-styles" assetpath="bower_components/paper-item/">
   <template>
     <style>
@@ -3068,7 +2748,9 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
     </style>
   </template>
 </dom-module>
-</llink><dom-module id="paper-item" assetpath="bower_components/paper-item/">
+
+
+<dom-module id="paper-item" assetpath="bower_components/paper-item/">
   <template>
     <style include="paper-item-shared-styles"></style>
     <style>
@@ -3085,6 +2767,7 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
   </template>
 
   </dom-module>
+
 <dom-module id="t-form" assetpath="bower_components/t-form/">
     <template>
     <style include="iron-flex">
@@ -3213,6 +2896,14 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
         </t-form>
     </template>
 </dom-module>
+<dom-module id="t-search-initiator" assetpath="bower_components/t-air-search/">
+
+<template>
+   <iron-ajax id="searchCall" method="POST" url="[[url]]" verbose="" headers="{&quot;accept&quot;: &quot;application/json&quot;}" content-type="application/json" handle-as="json" on-response="_callback"></iron-ajax>
+</template>
+
+</dom-module>
+
 <dom-module id="t-range" assetpath="bower_components/t-range/">
     
     <template>
@@ -3417,6 +3108,54 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
         <div id="range"></div>
     </template>
 </dom-module>
+<style>
+:host {
+    display: block;
+}
+
+.t-starrating-wrapper {
+    unicode-bidi: bidi-override;
+    direction: rtl;
+}
+
+.t-starrating-wrapper > span {
+    display: inline-block;
+    position: relative;
+    width: 1em;
+    font-size: 1.5em;
+    cursor: pointer;
+    opacity: 0.4;
+}
+
+.t-starrating-wrapper > span.active,
+.t-starrating-wrapper > span.active ~ span {
+    opacity: 1;
+}
+
+.t-starrating-wrapper:hover > span.active,
+.t-starrating-wrapper:hover > span.active ~ span {
+    opacity: 0.4;
+}
+
+.t-starrating-wrapper > span:hover,
+.t-starrating-wrapper > span:hover ~ span,
+.t-starrating-wrapper > span.active:hover ~ span {
+    opacity: 0.8 !important;
+}
+
+.t-starrating-wrapper > span:hover {
+    opacity: 0.9 !important;
+}
+
+.t-starrating-wrapper > span.totals {
+    opacity: 1 !important;
+    margin-left: 50px;
+}
+
+.t-starrating-wrapper > span.totals:hover {
+    opacity: 1 !important;
+}
+</style>
 <dom-module id="t-starrating" assetpath="bower_components/t-starrating/">
     <template>
         <div class="t-starrating-wrapper">
@@ -4274,6 +4013,8 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
     </style>
   </template>
 </dom-module>
+
+
 <dom-module id="paper-spinner" assetpath="bower_components/paper-spinner/">
   <template>
     <style include="paper-spinner-styles"></style>
@@ -4322,6 +4063,7 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
   </template>
 
   </dom-module>
+
 <dom-module id="t-list" assetpath="bower_components/t-list/">
     <template>      
         <style include="iron-flex">
@@ -4582,6 +4324,7 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
         </style>
     </template>
 </dom-module>
+
 <dom-module id="t-result-item" assetpath="bower_components/t-result-item/">
     <template>
     <style include="iron-flex"></style>
@@ -4695,4 +4438,274 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
             </div>
     </template>
 </dom-module>
-</div><script src="build.js"></script></body></html>
+<style is="custom-style">
+  
+:root {
+
+
+--input-border-color: #bbbbbb;
+
+--t-font-common-base: {
+  font-family: var(--primary-font-family);
+  -webkit-font-smoothing: antialiased;
+};
+--t-form-transition-easing: {
+    -webkit-transition-timing-function: ease-in-out;
+    transition-timing-function: ease-in-out;
+}
+
+--t-font-caption: {
+  @apply(--t-font-common-base);
+  @apply(--t-font-common-nowrap);
+
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.011em;
+  line-height: 20px;
+};
+--t-font-common-nowrap: {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+};
+
+--t-font-subhead: {
+  @apply(--t-font-common-base);
+
+  font-size: 16px;
+  font-weight: 400;
+};
+
+--t-input-container-label: {
+  /*apply t-input-container label style */
+}
+--t-input-container-label-floating: {
+  /*apply t-input-container when floating label style */
+}
+--t-input-container-input:{
+  /*apply t-input-container value style */
+}
+
+/* Style start Autosuggest */
+
+
+--autosuggest-item-text-size:12px;
+--autosuggest-item-text-color:var(--grey-four);
+--autosuggest-item-bg-color:#fafafa;
+--autosuggest-item-border-color: var(--input-border-color);
+--autosuggest-item-padding: 12px 10px;
+
+/*Common styles*/
+--form-label-color: var(--light-primary-color);
+--form-label-size:16px;
+--form-label-margin:10px;
+--form-border-color: var(--light-primary-color);
+--form-value-color: var(--grey-four);
+--form-underline-color: #e0e0e0;
+--error-color:var(--error-theme-color); 
+
+--standard-border-radius:2px;
+
+/* not found yet */
+--standard-input-field-text-size:16px;
+--standard-padding-input-field:12px;
+--form-label-mobile-size: 12px;
+--form-label-mobile-margin:5px;
+/* end */
+
+
+
+/* Radiobutton and Pill button */
+--radio-button-item-margin: 14px;
+
+--radio-button-unchecked-color: var(--default-primary-color);
+
+--radio-button-checked-color: var(--default-primary-color);
+
+/*Calendar*/
+
+--calendar-box-background-color:#fff;
+
+--calendar-year-month-text-color:var(--grey-five);
+
+--calendar-box-prev-next-color:var(--grey-five);
+--calendar-box-prev-next-hover-color:#fff;
+--calendar-box-prev-next-hover-bg:var(--default-primary-color);
+
+--calendar-disabled-text-color:var(--disabled-text-color);
+
+--calendar-weekday-text-size:var(--standard-input-field-text-size);
+--calendar-weekday-text-color:var(--grey-four);
+
+--calendar-day-text-color:var(--default-primary-color);
+--calendar-day-hover-bg:var(--default-primary-color);
+--calendar-day-hover-text:#fff;
+
+--calendar-day-selected-bg:var(--default-primary-color);
+--calendar-box-border-color:#eee;
+
+
+
+/*Checkbox (& checkbox list) */
+--checkbox-unchecked-bg: #fff;
+--checkbox-unchecked-color: var(--grey-four);
+--checkbox-unchecked-ink-color: var(--grey-four);
+
+--checkbox-check-sign-color: #fff;
+--checkbox-checked-color: var(--default-primary-color);
+--checkbox-checked-ink-color: var(--default-primary-color);
+
+--checkbox-item-margin: 14px;/* the distance between two item */
+
+--checkbox-item-text-size: 14px ;
+--checkbox-item-text-color: var(--grey-four);
+
+
+
+/* button Styling */
+--button-text-size:14px;
+--button-text-color: var(--grey-four);
+--button-bg-color:#fff;
+--button-primary-bg-color: var(--default-primary-color);
+--button-primary-text-color:var(--secondary-text-color);
+
+--button-disabled-bg-color: var(--primary-disabled-background-color);
+--button-disabled-text-color:#a8a8a8;
+
+--button-min-width: 5.14em;
+
+--icon-color: var(--grey-four);
+--icon-bg-color:transparent;
+--button-icon-size:24px;
+
+
+/* Start t-table */
+--table-header-bg: var(--grey-four);
+--table-header-text-size: 11px;
+--table-header-text-color:#fff;
+
+--table-body-text-size:12px;
+--table-body-text-color: var(--grey-four);
+--table-div-padding: 16px 15px;
+--table-row-border-color: var(--table-row-striped-bg);
+--table-row-striped-bg: var(--grey-one);
+--table-row-hover-bg: #eeeeee;
+
+/* pagination */
+--middle-pagination-border: 1px solid var(--grey-one);
+--total-pagination-border: 1px solid var(--grey-one);
+--pagination-text-color: var(--grey-four);
+--pagination-bg-color:#eee;
+--pagination-hover-bg:var(--grey-one);
+
+/* Color-picker */
+--color-picker-height:42px;
+
+/* loader */
+
+--t-loader-layer-1-color: var(--default-primary-color);
+--t-loader-layer-2-color: var(--default-primary-color);
+--t-loader-layer-3-color: var(--default-primary-color);
+--t-loader-layer-4-color: var(--default-primary-color);
+
+
+/* Slider */
+--t-slider-active-color: var(--default-primary-color);
+--t-slider-secondary-color: var(--default-primary-color);
+--t-slider-disabled-active-color: var(--grey-three);
+--t-slider-disabled-secondary-color: var(--grey-two);
+--t-slider-knob-color: var(--default-primary-color);
+--t-slider-pin-color: var(--default-primary-color);
+--t-slider-font-color: var(-grey-one);
+--t-slider-disabled-knob-color: var(--grey-three);
+
+/* Section Header */
+--section-header-text-size: 16px;
+--section-header-line-color: var(--grey-three);
+--section-header-color: var(--grey-four);
+--section-header-bg-color: var(--grey-two);
+
+/* Input Style for both text area and input */
+
+
+/* Range Slider  */
+
+
+
+}
+
+</style><link href="https://fonts.googleapis.com/css?family=Open+Sans:400,300,600,700" rel="stylesheet" type="text/css">
+
+<style is="custom-style">
+  
+:root {
+    
+    --default-primary-color: #07c5f2;
+
+    --dark-primary-color: #303f9f;
+
+    --light-primary-color: #bbbbbb;
+
+    --text-primary-color: #ccc;
+
+    --accent-color: #ff4081;
+
+    --primary-font-family: 'Open Sans', sans-serif;
+
+    --primary-background-color: #fff;
+
+    --secondary-background-color: #07c5f2;
+
+    --primary-disabled-background-color: #eaeaea;
+
+    --disabled-text-color: #dddddd;
+
+    --primary-text-color: #777;
+
+    --secondary-text-color: #fff;
+
+    --standar-border-radius: 2px;
+
+    --divider-color: #e0e0e0;   
+
+    --header-text-color:#333; 
+
+    --grey-one: #f5f5f5;
+    --grey-two: #eeeeee;
+    --grey-three: #bbbbbb;
+    --grey-four: #777777;
+    --grey-five: #555555;
+    --grey-six: #333333;
+    --grey-seven: #222222;
+    --grey-nine: #999999;
+
+    --error-theme-color: #ec5858;
+
+    --light-color: #ffffff;
+
+    --dark-color: #111;
+    --dark-color-1: #434a54;
+    --dark-color-2: #e1e6ee;
+    --dark-color-3: rgba(67, 74, 84, 0.3);
+
+    --base-color: #0098ff;
+    --base-color-1: #147be1;
+    --base-color-2: #5d9cec;
+
+    --link-color: #147be1;
+    --btn-color: #434a54;
+    --border-color: #b2b8c0;
+    --icon-color: #5d9cec;
+
+    --success-color: #7fad4d;
+    --error-color: #da4646;
+    --error-heading: #722222;
+    
+    --footer-text-size: 10px;   
+    --header-font-size: 26px;
+
+    --font-size-medium:14px;
+    --h4-text-size:16px;
+    --t-header-size:55px;
+}
+</style></div><script src="build.js"></script></body></html>
