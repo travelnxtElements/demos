@@ -35,7 +35,7 @@
                 min-width: 300px;
                 width: 400px;
                 margin: 40px 10px 0 50px;
-                border-radius: 10px;
+                border-radius: 10px;                
                 -webkit-box-sizing: border-box;
                 -moz-box-sizing: border-box;
                 box-sizing: border-box;
@@ -101,6 +101,30 @@
                 color: #fff !important;
 
             }
+          
+
+            @media (min-width: 767px){
+                 
+                #filterModal
+                {
+                    display: block !important; 
+                    width: 20%;
+                    position: absolute; 
+                }
+                #filterModal t-header,.filteredRatio iron-icon{
+                    display: none;
+                }
+                .sorting.t-list,t-simple-list#list
+                {
+                    width: 79%;
+                    float: right;
+                }
+                .searchpanl
+                {
+                    height: 100%;
+                }
+            }
+
             @media (min-width: 40em){
                 .h1{
                     display: block;
@@ -113,6 +137,8 @@
                     display: none;
                 }
             }
+              
+
             </style>
             <div class="layout vertical main">
                 <div class="layout horizontal center header" style="background:#eee;padding:10px 20px;">
@@ -120,15 +146,16 @@
                     <a id="again" class="hide" on-click="_againSearch">Search Again</a>
                 </div>
                 <div class="layout horizontal center flex end-justified page-section">                    
-
-                    <div class="search">
-                        <t-air-search id="airSearchComponent" trip-type="Round trip" search-type="event" suggestion-url="http://demo.travelnxt.com/api/Content/autosuggest/" query-params="cid=mystiquedemo&token=w1q3rbau2uswx4awygaf4ell"></t-air-search>
-                        <t-search-initiator url="http://demo.travelnxt.com/api/Flight/search?cid=mystiquedemo&token=w1q3rbau2uswx4awygaf4ell" on-initiation="callback"></t-search-initiator>
-                    </div>
+                    <div class="searchpanl">
+                        <div class="search">
+                            <t-air-search id="airSearchComponent" trip-type="Round trip" search-type="event" suggestion-url="http://demo.travelnxt.com/api/Content/autosuggest/" query-params="cid=mystiquedemo&token=w1q3rbau2uswx4awygaf4ell"></t-air-search>
+                            <t-search-initiator url="http://demo.travelnxt.com/api/Flight/search?cid=mystiquedemo&token=w1q3rbau2uswx4awygaf4ell" on-initiation="callback"></t-search-initiator>
+                        </div>
+                    </div>  
 
                     <div class="list">
                         <div style="overflow:auto">
-                        <t-list token-param="inventories" with-sorting with-filter on-list-population="_listPopulated" on-item-selected="_resultSelected" id="resultsList">
+                        <t-list token-param="inventories" sort-params='[{"key":"Price","value":"$orderby=minFare%2FFare%2FAmount","default":true},{"key":"Stops","value":"$orderby=TotalStops"},{"key":"Duration","value":"$orderby=duration/journey"}]' with-sorting with-filter on-list-population="_listPopulated" on-item-selected="_resultSelected" id="resultsList">
                             <template>
                                 <t-result-item itinerary="{{item}}">
                                 </t-result-item>
@@ -168,7 +195,7 @@
             setTimeout(function(){
                 var listDiv = document.querySelector('#list'),
                 offsetHeight = window.innerHeight - listDiv.getBoundingClientRect().top + "px!important";
-                listDiv.parentNode.setAttribute("style","height:"+offsetHeight);
+                listDiv.parentNode.setAttribute("style","height:"+offsetHeight);                
              }, 600);
 
 
