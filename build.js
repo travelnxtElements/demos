@@ -1019,7 +1019,7 @@ return data;
 }
 return escapeData(data);
 case Node.COMMENT_NODE:
-return '<!--' + node.data + '-->';
+return '\x3c!--' + node.data + '--\x3e';
 default:
 console.error(node);
 throw new Error('not implemented');
@@ -8103,7 +8103,7 @@ It may be desirable to only allow users to enter certain characters. You can use
 `prevent-invalid-input` and `allowed-pattern` attributes together to accomplish this. This feature
 is separate from validation, and `allowed-pattern` does not affect how the input is validated.
 
-    <!-- only allow characters that match [0-9] -->
+    \x3c!-- only allow characters that match [0-9] --\x3e
     <input is="iron-input" prevent-invalid-input allowed-pattern="[0-9]">
 
 @hero hero.svg
@@ -23652,7 +23652,7 @@ Polymer({
        *```html
        * <div id="scrollable-element" style="overflow: auto;">
        *  <x-element scroll-target="scrollable-element">
-       *    <!-- Content-->
+       *    \x3c!-- Content--\x3e
        *  </x-element>
        * </div>
        *```
@@ -23664,7 +23664,7 @@ Polymer({
        *
        *```html
        * <x-element scroll-target="document">
-       *   <!-- Content -->
+       *   \x3c!-- Content --\x3e
        * </x-element>
        *```
        *
