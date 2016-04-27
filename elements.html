@@ -2826,7 +2826,6 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
             padding: 0;
             margin: 0;
             max-width: 100%;
-            
         }
         
         [pill-button] ::content iron-selector {
@@ -2845,7 +2844,6 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
         t-stepper {
             outline: 0;
         }
-        
         </style>
         <t-form show-loader="" error-block="" class="canvas vertical layout flex" name="untitled-form" heading="Untitled Form" action-button="Full" submit-button-label="Search Flights" secondary-action-label="Cancel" label-position="Top">
             <div class="form flex ">
@@ -3293,9 +3291,13 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
         position: relative;
       }
 
-      #items > ::content > * {
+      :host(:not([grid])) #items > ::content > * {
         width: 100%;
+      };
+
+      #items > ::content > * {
         box-sizing: border-box;
+        margin: 0;
         position: absolute;
         top: 0;
         will-change: transform;
@@ -3486,9 +3488,6 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
         .secondary-text{
             color: var(--grey-three, #bbbbbb);
         }
-
-       
-
         </style>
         <div class="layout horizontal" id="filteredRatio">
             <div class="flex layout horizontal center">
@@ -4170,7 +4169,6 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
         .link {
             color: var(--link-color,#0098ff);
         }
-        
         </style>  
         <div id="listContainer">
             <div hidden="[[!withFilter]]">                
