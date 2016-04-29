@@ -236,7 +236,7 @@
                     <div class="heading">
                         <div class="layout horizontal center justified item-layout">
                             <a class="link" on-click="_resetFilters">Reset</a>
-                            <t-button id="applyfilters" label="Apply Filters" class="primary" on-click="_applyFilters"></t-button>
+                            <t-button id="applyfilters" label="Apply Filters" class="primary" on-click="_applyFilters" disabled="true"></t-button>
                         </div>
                     </div>
                     <div class="flex scrollsection">
@@ -496,7 +496,7 @@ Polymer({
     observers: [
         '_onResultsResponse(resultsPagingInfo)',
         '_addListenerBlur(_searchFilter)',
-        '_setButtonState(cachedFilters.splices)'
+        //'_setButtonState(cachedFilters.splices)'
     ],
 
     attached: function() {
@@ -507,7 +507,7 @@ Polymer({
     },
 
     _setButtonState:function(changeReacord){
-        this.$.applyfilters.disabled =  this.cachedFilters.length > 0 ? false:true;
+        this.$.applyfilters.disabled = true;
     },
 
     _getMaxRange: function(items, index) {
@@ -640,7 +640,10 @@ Polymer({
         var instance = e.model.item;
         var target = e.currentTarget;
         var category = target.getAttribute("data-category");
+        
         if (instance) {
+            this.$.applyfilters.disabled =  false;
+
             var label = e.currentTarget.getAttribute("data-label");
             var type = e.currentTarget.getAttribute("data-type");
             var currentFilter = {
@@ -815,7 +818,7 @@ Polymer({
 
         var element = currentFilter.element;
         component._resetElement(element, currentFilter.name);
-
+         this.$.applyfilters.disabled =  false;
         component.cachedFilters = component.cachedFilters.filter(function(filter, index) {
             if (filter.category == currentFilter.category && filter.name == currentFilter.name)
                 return false;
@@ -839,9 +842,10 @@ Polymer({
                 return;
             }
         }
+        this.$.applyfilters.disabled = true;
         var component = this;
         var filters = [];
-        this._interstitialFilters = this.cachedFilters;
+       // this._interstitialFilters = this.cachedFilters;
         this.cachedFilters.forEach(function(filter) {
             filters = filters.concat(component._getAppliedFilter(filter));
         });
@@ -1025,7 +1029,8 @@ Polymer({
 
     _revertChanges: function(event) {
         var component = this;
-        this.cachedFilters = this._interstitialFilters;
+        //this.cachedFilters = this._interstitialFilters;
+       // this.$.applyfilters.disabled =  this.cachedFilters.length > 0 ? false:true;
         component.fire('filter-close');
 
         //this.$$('#filteredRatio').hidden = false;
